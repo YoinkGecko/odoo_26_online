@@ -11,12 +11,17 @@ const cors = require("cors");
 //const xss = require("xss-clean");
 const rateLimiterLib = require("express-rate-limit");
 
-//custom implemented erro middleware
+//erro middleware
 const notFound = require("./middleware/not-found");
 const errorHandler = require("./middleware/error-handler");
 
+//other middleware
+const logger = require("./middleware/logger");
+const rateLimiter = require("./middleware/rate-limiter");
+const auth = require("./middleware/authentication");
 
-//app.set("trust proxy", 1); //app.set() no idea
+//routers
+
 app.use(
   rateLimiterLib({
     windowMs: 15 * 60 * 100, //15 min
@@ -29,14 +34,18 @@ app.use(cors());
 //app.use(xss());
 
 //app.use(express.static('./public'));
-
+app.use(logger);
+app.use(rateLimiter);
 
 //routes
 app.get("/ping", (req, res) => {
   res.status(200).send("PONG");
 });
 
+//app.use("/api/v1/auth", authRouter); 
 
+app.use(notFound);
+app.use(errorHandler);
 
 const port = process.env.PORT || 3000;
 
