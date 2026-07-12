@@ -403,13 +403,31 @@ function AuthScreen({ onLogin }: { onLogin: () => void }) {
 }
 
 function Dashboard() {
+  const [stats, setStats] = useState<any>(null);
+
+  const fetchDashboardStats = async () => {
+    try {
+      const res = await fetch("http://localhost:5000/api/v1/dashboard");
+      const json = await res.json();
+      if (json.success) {
+        setStats(json.data);
+      }
+    } catch (err) {
+      console.error("Error fetching dashboard stats:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchDashboardStats();
+  }, []);
+
   const kpis = [
-    { label: "Active Vehicles", value: "4", sub: "of 7 total", icon: Truck, trend: "+1 this week", trendUp: true },
-    { label: "Available Vehicles", value: "3", sub: "ready for dispatch", icon: CheckCircle, trend: "same as yesterday", trendUp: true },
-    { label: "In Maintenance", value: "1", sub: "KCC 778B in shop", icon: Wrench, trend: "-1 resolved this week", trendUp: true },
-    { label: "Active Trips", value: "2", sub: "in transit now", icon: Navigation, trend: "+2 from this morning", trendUp: true, accent: true },
-    { label: "Drivers On Duty", value: "4", sub: "of 6 registered", icon: Users, trend: "2 off duty", trendUp: false },
-    { label: "Fleet Utilization", value: "83%", sub: "highest this month", icon: Gauge, trend: "+5% vs last month", trendUp: true },
+    { label: "Active Vehicles", value: stats ? stats.activeVehicles.count.toString() : "4", sub: stats ? `of ${stats.activeVehicles.total} total` : "of 7 total", icon: Truck, trend: "+1 this week", trendUp: true },
+    { label: "Available Vehicles", value: stats ? stats.availableVehicles.toString() : "3", sub: "ready for dispatch", icon: CheckCircle, trend: "same as yesterday", trendUp: true },
+    { label: "In Maintenance", value: stats ? stats.maintenanceCount.toString() : "1", sub: "vehicles in shop", icon: Wrench, trend: "-1 resolved this week", trendUp: true },
+    { label: "Active Trips", value: stats ? stats.trips.toString() : "2", sub: "in transit now", icon: Navigation, trend: "+2 from this morning", trendUp: true, accent: true },
+    { label: "Drivers On Duty", value: stats ? stats.drivers.active.toString() : "4", sub: stats ? `of ${stats.drivers.total} registered` : "of 6 registered", icon: Users, trend: "2 off duty", trendUp: false },
+    { label: "Fleet Utilization", value: stats ? stats.fleetUtilization : "83%", sub: "highest this month", icon: Gauge, trend: "+5% vs last month", trendUp: true },
     { label: "Pending Trips", value: "1", sub: "scheduled tomorrow", icon: Clock, trend: "1 pending approval", trendUp: false },
     { label: "Op. Cost Today", value: "KES 73K", sub: "fuel + maintenance", icon: DollarSign, trend: "+12% vs avg", trendUp: false },
   ];
@@ -419,6 +437,13 @@ function Dashboard() {
     { type: "warning", icon: Clock, msg: "KCC 778B — Toyota Hilux overdue maintenance check-in" },
     { type: "warning", icon: AlertCircle, msg: "Annual inspection overdue on KCG 123F — Scania R450" },
     { type: "info", icon: DollarSign, msg: "Operational cost 12% above monthly average target" },
+  ];
+
+  const fleetStatusCounts = [
+    { label: "Available", count: stats ? stats.availableVehicles : 3, total: stats ? stats.activeVehicles.total : 7, color: "bg-emerald-400" },
+    { label: "On Trip", count: stats ? stats.activeVehicles.count : 2, total: stats ? stats.activeVehicles.total : 7, color: "bg-blue-400" },
+    { label: "In Shop", count: stats ? stats.maintenanceCount : 1, total: stats ? stats.activeVehicles.total : 7, color: "bg-amber-400" },
+    { label: "Retired", count: 1, total: stats ? stats.activeVehicles.total : 7, color: "bg-gray-500" },
   ];
 
   return (
@@ -459,26 +484,21 @@ function Dashboard() {
 
         <ChartCard title="Fleet Status">
           <div className="space-y-3 mt-2">
-            {[
-              { label: "Available", count: 3, total: 7, color: "bg-emerald-400" },
-              { label: "On Trip", count: 2, total: 7, color: "bg-blue-400" },
-              { label: "In Shop", count: 1, total: 7, color: "bg-amber-400" },
-              { label: "Retired", count: 1, total: 7, color: "bg-gray-500" },
-            ].map(s => (
+            {fleetStatusCounts.map(s => (
               <div key={s.label}>
                 <div className="flex justify-between text-xs mb-1">
                   <span className="text-gray-400">{s.label}</span>
                   <span className="text-white font-medium">{s.count}</span>
                 </div>
                 <div className="h-1.5 bg-[#2B313B] rounded-full overflow-hidden">
-                  <div className={`h-full ${s.color} rounded-full`} style={{ width: `${(s.count / s.total) * 100}%` }} />
+                  <div className={`h-full ${s.color} rounded-full`} style={{ width: s.total > 0 ? `${(s.count / s.total) * 100}%` : "0%" }} />
                 </div>
               </div>
             ))}
           </div>
           <div className="mt-4 p-3 bg-[#2B313B] rounded-lg">
             <div className="text-xs text-gray-400">Total Fleet</div>
-            <div className="text-xl font-bold text-white">7 <span className="text-sm font-normal text-gray-500">vehicles</span></div>
+            <div className="text-xl font-bold text-white">{stats ? stats.activeVehicles.total : 7} <span className="text-sm font-normal text-gray-500">vehicles</span></div>
           </div>
         </ChartCard>
       </div>
@@ -527,7 +547,7 @@ function Dashboard() {
               </tr>
             </thead>
             <tbody className="divide-y divide-[#2B313B]">
-              {TRIPS.slice(0, 5).map(t => (
+              {(stats ? stats.recentTrips : TRIPS.slice(0, 5)).map((t: any) => (
                 <tr key={t.id} className="hover:bg-[#2B313B]/40 transition-colors">
                   <td className="px-5 py-3 font-mono text-xs text-amber-400">{t.id}</td>
                   <td className="px-5 py-3 text-white font-medium">{t.vehicle}</td>
