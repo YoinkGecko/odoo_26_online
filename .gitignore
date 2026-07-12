@@ -1,0 +1,7 @@
+#main app
+node_modules/
+.env
+
+#mail notification service
+mail_notification_service/node_modules/
+mail_notification_service/.env
