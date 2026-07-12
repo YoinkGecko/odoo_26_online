@@ -1,0 +1,96 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #F8FAFC;
+  --foreground: #0F172A;
+  --primary: #2563EB;
+  --primary-foreground: #FFFFFF;
+  --secondary: #F1F5F9;
+  --secondary-foreground: #475569;
+  --accent: #EFF6FF;
+  --accent-foreground: #1D4ED8;
+  --muted: #F1F5F9;
+  --muted-foreground: #64748B;
+  --card: #FFFFFF;
+  --card-foreground: #0F172A;
+  --border: #E2E8F0;
+  --input: #E2E8F0;
+  --ring: #2563EB;
+  --radius: 8px;
+  --font-sans: var(--font-dm-sans), sans-serif;
+
+  --status-available: #16A34A;
+  --status-available-bg: #F0FDF4;
+  --status-on-trip: #2563EB;
+  --status-on-trip-bg: #EFF6FF;
+  --status-in-shop: #D97706;
+  --status-in-shop-bg: #FFFBEB;
+  --status-retired: #6B7280;
+  --status-retired-bg: #F9FAFB;
+  --status-draft: #6B7280;
+  --status-draft-bg: #F9FAFB;
+  --status-dispatched: #2563EB;
+  --status-dispatched-bg: #EFF6FF;
+  --status-completed: #16A34A;
+  --status-completed-bg: #F0FDF4;
+  --status-cancelled: #DC2626;
+  --status-cancelled-bg: #FEF2F2;
+  --status-suspended: #DC2626;
+  --status-suspended-bg: #FEF2F2;
+  --status-off-duty: #6B7280;
+  --status-off-duty-bg: #F9FAFB;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    border-color: var(--border);
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+  h1, h2, h3, h4, h5, h6, p {
+    margin: 0;
+  }
+}
+
+@layer utilities {
+  .font-tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  .sidebar-transition {
+    transition: width 300ms ease;
+  }
+  .fade-in {
+    animation: fadeIn 150ms ease forwards;
+  }
+  .slide-up {
+    animation: slideUp 200ms ease forwards;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: scale(0.97); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .skeleton-pulse {
+    background: linear-gradient(90deg, #F1F5F9 25%, #E2E8F0 50%, #F1F5F9 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+}
