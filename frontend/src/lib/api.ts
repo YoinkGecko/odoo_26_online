@@ -48,6 +48,11 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
 
 export const api = {
   auth: {
+    register: (data: { email: string; password: string; name: string; role?: string }) =>
+      apiFetch<{ token: string; user: AuthUser }>('/auth/register', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
     login: (email: string, password: string) =>
       apiFetch<{ token: string; user: AuthUser }>('/auth/login', {
         method: 'POST',

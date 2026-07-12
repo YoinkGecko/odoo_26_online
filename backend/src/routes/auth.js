@@ -5,6 +5,35 @@ import { signToken } from '../middleware/auth.js';
 
 const router = Router();
 
+router.post('/register', async (req, res) => {
+  const { email, password, name, role } = req.body;
+  if (!email || !password || !name) {
+    return res.status(400).json({ message: 'Email, password, and name are required' });
+  }
+
+  const normalizedEmail = email.toLowerCase().trim();
+  const existing = await pool.query('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
+  if (existing.rows.length > 0) {
+    return res.status(409).json({ message: 'An account with that email already exists' });
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  const userId = `usr-${Date.now()}`;
+  const result = await pool.query(
+    `INSERT INTO users (id, email, password_hash, role, name)
+     VALUES ($1, $2, $3, $4, $5) RETURNING id, email, role, name`,
+    [userId, normalizedEmail, passwordHash, role || 'Fleet Manager', name.trim()]
+  );
+
+  const user = result.rows[0];
+  const token = signToken({ id: user.id, email: user.email, role: user.role, name: user.name });
+
+  res.status(201).json({
+    token,
+    user: { id: user.id, email: user.email, role: user.role, name: user.name },
+  });
+});
+
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) {
