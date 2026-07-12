@@ -247,5 +247,181 @@ CREATE TRIGGER trg_trips_updated_at
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- =========================================================
--- Business Rule Enforcement: Trips (Pending)
+-- Business Rule Enforcement: Trips (Done)
 -- =========================================================
+CREATE OR REPLACE FUNCTION enforce_trip_rules()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_status vehicle_status;
+    v_capacity NUMERIC(10,2);
+    d_status driver_status;
+    d_expiry DATE;
+BEGIN
+    SELECT status, max_load_capacity INTO v_status, v_capacity
+        FROM vehicles WHERE id = NEW.vehicle_id;
+    SELECT status, license_expiry_date INTO d_status, d_expiry
+        FROM drivers WHERE id = NEW.driver_id;
+
+    -- Cargo weight must not exceed vehicle max load capacity
+    IF NEW.cargo_weight > v_capacity THEN
+        RAISE EXCEPTION 'Cargo weight (%) exceeds vehicle max load capacity (%)',
+            NEW.cargo_weight, v_capacity;
+    END IF;
+
+    -- On creation (DRAFT) or dispatch, vehicle/driver must be eligible
+    IF (TG_OP = 'INSERT') OR (NEW.status = 'DISPATCHED' AND OLD.status IS DISTINCT FROM 'DISPATCHED') THEN
+        IF v_status NOT IN ('AVAILABLE') THEN
+            RAISE EXCEPTION 'Vehicle % is not available (status: %)', NEW.vehicle_id, v_status;
+        END IF;
+        IF d_status NOT IN ('AVAILABLE') THEN
+            RAISE EXCEPTION 'Driver % is not available (status: %)', NEW.driver_id, d_status;
+        END IF;
+        IF d_expiry < CURRENT_DATE THEN
+            RAISE EXCEPTION 'Driver % license expired on %', NEW.driver_id, d_expiry;
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_enforce_trip_rules
+    BEFORE INSERT OR UPDATE ON trips
+    FOR EACH ROW EXECUTE FUNCTION enforce_trip_rules();
+
+-- =========================================================
+-- Automatic Status Transitions: Trips -> Vehicles/Drivers
+-- =========================================================
+CREATE OR REPLACE FUNCTION sync_trip_status_changes()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Dispatch: vehicle & driver -> ON_TRIP
+    IF NEW.status = 'DISPATCHED' AND (TG_OP = 'INSERT' OR OLD.status IS DISTINCT FROM 'DISPATCHED') THEN
+        UPDATE vehicles SET status = 'ON_TRIP' WHERE id = NEW.vehicle_id;
+        UPDATE drivers SET status = 'ON_TRIP' WHERE id = NEW.driver_id;
+        NEW.dispatched_at = COALESCE(NEW.dispatched_at, NOW());
+    END IF;
+
+    -- Complete: vehicle & driver -> AVAILABLE
+    IF NEW.status = 'COMPLETED' AND OLD.status IS DISTINCT FROM 'COMPLETED' THEN
+        UPDATE vehicles SET status = 'AVAILABLE' WHERE id = NEW.vehicle_id AND status != 'RETIRED';
+        UPDATE drivers SET status = 'AVAILABLE' WHERE id = NEW.driver_id AND status != 'SUSPENDED';
+        NEW.completed_at = COALESCE(NEW.completed_at, NOW());
+    END IF;
+
+    -- Cancel a dispatched trip: vehicle & driver -> AVAILABLE
+    IF NEW.status = 'CANCELLED' AND OLD.status = 'DISPATCHED' THEN
+        UPDATE vehicles SET status = 'AVAILABLE' WHERE id = NEW.vehicle_id AND status != 'RETIRED';
+        UPDATE drivers SET status = 'AVAILABLE' WHERE id = NEW.driver_id AND status != 'SUSPENDED';
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_sync_trip_status_changes
+    BEFORE UPDATE ON trips
+    FOR EACH ROW EXECUTE FUNCTION sync_trip_status_changes();
+
+-- Also handle a trip inserted directly as DISPATCHED (not via DRAFT first)
+CREATE TRIGGER trg_sync_trip_status_insert
+    BEFORE INSERT ON trips
+    FOR EACH ROW
+    WHEN (NEW.status = 'DISPATCHED')
+    EXECUTE FUNCTION sync_trip_status_changes();
+
+-- =========================================================
+-- Automatic Status Transitions: Maintenance -> Vehicles
+-- =========================================================
+CREATE OR REPLACE FUNCTION sync_maintenance_status_changes()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'INSERT' AND NEW.is_active THEN
+        UPDATE vehicles SET status = 'IN_SHOP' WHERE id = NEW.vehicle_id;
+    END IF;
+
+    IF TG_OP = 'UPDATE' AND OLD.is_active = TRUE AND NEW.is_active = FALSE THEN
+        NEW.completed_at = COALESCE(NEW.completed_at, NOW());
+        UPDATE vehicles SET status = 'AVAILABLE'
+            WHERE id = NEW.vehicle_id AND status != 'RETIRED';
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_sync_maintenance_status
+    BEFORE INSERT OR UPDATE ON maintenance_logs
+    FOR EACH ROW EXECUTE FUNCTION sync_maintenance_status_changes();
+
+-- Prevent assigning a vehicle currently IN_SHOP / RETIRED / ON_TRIP to a new trip
+-- is already covered by enforce_trip_rules() above (status must be AVAILABLE).
+
+-- =========================================================
+-- Reporting Views
+-- =========================================================
+
+-- Operational cost per vehicle (Fuel + Maintenance)
+CREATE OR REPLACE VIEW vehicle_operational_cost AS
+SELECT
+    v.id AS vehicle_id,
+    v.registration_number,
+    COALESCE(f.total_fuel_cost, 0) AS total_fuel_cost,
+    COALESCE(m.total_maintenance_cost, 0) AS total_maintenance_cost,
+    COALESCE(f.total_fuel_cost, 0) + COALESCE(m.total_maintenance_cost, 0) AS total_operational_cost
+FROM vehicles v
+LEFT JOIN (
+    SELECT vehicle_id, SUM(fuel_cost) AS total_fuel_cost
+    FROM fuel_logs GROUP BY vehicle_id
+) f ON f.vehicle_id = v.id
+LEFT JOIN (
+    SELECT vehicle_id, SUM(maintenance_cost) AS total_maintenance_cost
+    FROM maintenance_logs GROUP BY vehicle_id
+) m ON m.vehicle_id = v.id;
+
+-- Fuel efficiency (Distance / Fuel) per vehicle, based on completed trips
+CREATE OR REPLACE VIEW vehicle_fuel_efficiency AS
+SELECT
+    t.vehicle_id,
+    SUM(t.actual_distance) AS total_distance,
+    SUM(fl.liters) AS total_liters,
+    CASE WHEN SUM(fl.liters) > 0
+         THEN ROUND(SUM(t.actual_distance) / SUM(fl.liters), 2)
+         ELSE NULL
+    END AS distance_per_liter
+FROM trips t
+LEFT JOIN fuel_logs fl ON fl.trip_id = t.id
+WHERE t.status = 'COMPLETED'
+GROUP BY t.vehicle_id;
+
+-- Fleet utilization (% of vehicles currently ON_TRIP)
+CREATE OR REPLACE VIEW fleet_utilization AS
+SELECT
+    COUNT(*) FILTER (WHERE status = 'ON_TRIP') AS vehicles_on_trip,
+    COUNT(*) FILTER (WHERE status != 'RETIRED') AS active_vehicles,
+    ROUND(
+        100.0 * COUNT(*) FILTER (WHERE status = 'ON_TRIP')
+        / NULLIF(COUNT(*) FILTER (WHERE status != 'RETIRED'), 0), 2
+    ) AS utilization_pct
+FROM vehicles;
+
+-- Vehicle ROI: (Revenue - (Maintenance + Fuel)) / Acquisition Cost
+-- Revenue = sum of trips.revenue for that vehicle's COMPLETED trips only
+-- (a cancelled/draft trip earns nothing).
+CREATE OR REPLACE VIEW vehicle_roi AS
+SELECT
+    v.id AS vehicle_id,
+    v.registration_number,
+    COALESCE(r.total_revenue, 0) AS total_revenue,
+    oc.total_operational_cost,
+    ROUND(
+        (COALESCE(r.total_revenue, 0) - oc.total_operational_cost) / v.acquisition_cost, 4
+    ) AS roi
+FROM vehicles v
+JOIN vehicle_operational_cost oc ON oc.vehicle_id = v.id
+LEFT JOIN (
+    SELECT vehicle_id, SUM(revenue) AS total_revenue
+    FROM trips
+    WHERE status = 'COMPLETED'
+    GROUP BY vehicle_id
+) r ON r.vehicle_id = v.id;
