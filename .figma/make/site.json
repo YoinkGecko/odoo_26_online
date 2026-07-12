@@ -1,0 +1,10 @@
+{
+  "description": "Manage fleet operations efficiently with tools for vehicle tracking, driver oversight, trip planning, maintenance, expenses, and analytics.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
