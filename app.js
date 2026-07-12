@@ -21,6 +21,7 @@ const rateLimiter = require("./middleware/rate-limiter");
 const auth = require("./middleware/authentication");
 
 //routers
+const authRouter = require("./routes/auth");
 
 app.use(
   rateLimiterLib({
@@ -42,7 +43,8 @@ app.get("/ping", (req, res) => {
   res.status(200).send("PONG");
 });
 
-//app.use("/api/v1/auth", authRouter); 
+app.use("/api/v1/auth", authRouter); 
+//app.use("/api/v1/jobs", auth, jobsRouter);
 
 app.use(notFound);
 app.use(errorHandler);
