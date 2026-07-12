@@ -3092,11 +3092,45 @@ function FuelExpenses() {
 }
 
 function Reports() {
+  const [kpis, setKpis] = useState<any>(null);
+  const [charts, setCharts] = useState<any>(null);
+  const [costlyVehicles, setCostlyVehicles] = useState<any[]>([]);
+
+  const fetchReportsData = async () => {
+    try {
+      const resK = await fetch("http://localhost:5000/api/v1/reports/kpis");
+      const jsonK = await resK.json();
+      if (jsonK.success) setKpis(jsonK.data);
+
+      const resC = await fetch("http://localhost:5000/api/v1/reports/charts");
+      const jsonC = await resC.json();
+      if (jsonC.success) setCharts(jsonC.data);
+
+      const resT = await fetch("http://localhost:5000/api/v1/reports/top-costly-vehicles");
+      const jsonT = await resT.json();
+      if (jsonT.success) setCostlyVehicles(jsonT.data);
+    } catch (err) {
+      console.error("Error loading reports data:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchReportsData();
+  }, []);
+
+  const handleExportCsv = () => {
+    window.open("http://localhost:5000/api/v1/reports/export/csv", "_blank");
+  };
+
+  const handleExportPdf = () => {
+    window.open("http://localhost:5000/api/v1/reports/export/pdf", "_blank");
+  };
+
   const reportKpis = [
-    { label: "Fleet Utilization", value: "83%", sub: "6-month avg: 76%", icon: Gauge, trend: "+7% this period", trendUp: true },
-    { label: "Operational Cost", value: "KES 709K", sub: "January 2025", icon: DollarSign, trend: "+3% vs Dec", trendUp: false },
-    { label: "Avg Fuel Efficiency", value: "3.2 km/L", sub: "fleet average", icon: Fuel, trend: "+0.2 improvement", trendUp: true },
-    { label: "Vehicle ROI", value: "142%", sub: "avg across fleet", icon: TrendingUp, trend: "highest: KCF 890E", trendUp: true },
+    { label: "Fleet Utilization", value: kpis ? kpis.fleetUtilization : "83%", sub: "6-month avg: 76%", icon: Gauge, trend: "+7% this period", trendUp: true },
+    { label: "Operational Cost", value: kpis ? kpis.operationalCost : "KES 709K", sub: "Approved expenses", icon: DollarSign, trend: "+3% vs Dec", trendUp: false },
+    { label: "Avg Fuel Efficiency", value: kpis ? kpis.avgFuelEfficiency : "3.2 km/L", sub: "fleet average", icon: Fuel, trend: "+0.2 improvement", trendUp: true },
+    { label: "Vehicle ROI", value: kpis ? kpis.vehicleRoi : "142%", sub: "avg across fleet", icon: TrendingUp, trend: "highest: KCF 890E", trendUp: true },
   ];
 
   return (
@@ -3106,8 +3140,12 @@ function Reports() {
         subtitle="Executive performance overview"
         action={
           <div className="flex gap-2">
-            <Btn variant="secondary" size="sm"><Download className="w-3.5 h-3.5" />Export PDF</Btn>
-            <Btn variant="secondary" size="sm"><Download className="w-3.5 h-3.5" />Export CSV</Btn>
+            <Btn variant="secondary" size="sm" onClick={handleExportPdf}>
+              <Download className="w-3.5 h-3.5" />Export PDF
+            </Btn>
+            <Btn variant="secondary" size="sm" onClick={handleExportCsv}>
+              <Download className="w-3.5 h-3.5" />Export CSV
+            </Btn>
             <button className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1D2128] border border-[#2B313B] text-xs text-gray-400 rounded-lg hover:border-gray-500 transition-colors">
               <Calendar className="w-3.5 h-3.5" />Jan 2025<ChevronDown className="w-3 h-3" />
             </button>
@@ -3122,7 +3160,7 @@ function Reports() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
         <ChartCard title="Monthly Cost Trend (KES)">
           <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={monthlyExpenseData}>
+            <AreaChart data={charts ? charts.monthlyExpenseData : monthlyExpenseData}>
               <defs>
                 <linearGradient id="costGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3} />
@@ -3140,7 +3178,7 @@ function Reports() {
 
         <ChartCard title="Fuel Consumption (Liters)">
           <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={fuelConsumptionData}>
+            <LineChart data={charts ? charts.fuelConsumptionData : fuelConsumptionData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#2B313B" />
               <XAxis dataKey="month" tick={{ fill: "#9CA3AF", fontSize: 11 }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fill: "#9CA3AF", fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -3152,7 +3190,7 @@ function Reports() {
 
         <ChartCard title="Fleet Utilization Trend">
           <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={utilizationData}>
+            <AreaChart data={charts ? charts.utilizationData : utilizationData}>
               <defs>
                 <linearGradient id="utilGrad2" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#F59E0B" stopOpacity={0.3} />
@@ -3170,13 +3208,13 @@ function Reports() {
 
         <ChartCard title="Driver Performance Score">
           <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={driverPerformanceData} layout="vertical">
+            <BarChart data={charts ? charts.driverPerformanceData : driverPerformanceData} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" stroke="#2B313B" />
               <XAxis type="number" tick={{ fill: "#9CA3AF", fontSize: 11 }} axisLine={false} tickLine={false} domain={[0, 100]} />
               <YAxis dataKey="name" type="category" tick={{ fill: "#9CA3AF", fontSize: 11 }} axisLine={false} tickLine={false} width={70} />
               <Tooltip contentStyle={tooltipStyle} />
               <Bar dataKey="score" fill="#F59E0B" radius={[0, 3, 3, 0]} name="Safety Score">
-                {driverPerformanceData.map((e, i) => <Cell key={i} fill={e.score >= 90 ? "#22C55E" : e.score >= 75 ? "#F59E0B" : "#EF4444"} />)}
+                {(charts ? charts.driverPerformanceData : driverPerformanceData).map((e: any, i: number) => <Cell key={i} fill={e.score >= 90 ? "#22C55E" : e.score >= 75 ? "#F59E0B" : "#EF4444"} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -3196,18 +3234,18 @@ function Reports() {
               </tr>
             </thead>
             <tbody className="divide-y divide-[#2B313B]">
-              {[
+              {(costlyVehicles.length > 0 ? costlyVehicles : [
                 { v: "KCA 441Z — Mercedes Actros", fuel: 31500, mnt: 0, util: "91%", roi: "168%" },
                 { v: "KCD 234C — UD Trucks Quon", fuel: 38500, mnt: 28500, util: "88%", roi: "142%" },
                 { v: "KCE 567D — Hino 700", fuel: 28000, mnt: 8500, util: "74%", roi: "118%" },
                 { v: "KCB 112A — Isuzu FVR", fuel: 16625, mnt: 0, util: "66%", roi: "210%" },
                 { v: "KCC 778B — Toyota Hilux", fuel: 0, mnt: 85000, util: "0%", roi: "—" },
-              ].map(r => (
+              ]).map((r: any) => (
                 <tr key={r.v} className="hover:bg-[#2B313B]/40 transition-colors">
                   <td className="px-5 py-3 text-white">{r.v}</td>
-                  <td className="px-5 py-3 text-gray-300 text-xs">KES {r.fuel.toLocaleString()}</td>
-                  <td className="px-5 py-3 text-gray-300 text-xs">KES {r.mnt.toLocaleString()}</td>
-                  <td className="px-5 py-3 font-semibold text-white text-xs">KES {(r.fuel + r.mnt).toLocaleString()}</td>
+                  <td className="px-5 py-3 text-gray-300 text-xs">KES {Number(r.fuel).toLocaleString()}</td>
+                  <td className="px-5 py-3 text-gray-300 text-xs">KES {Number(r.mnt).toLocaleString()}</td>
+                  <td className="px-5 py-3 font-semibold text-white text-xs">KES {Number(r.fuel + r.mnt).toLocaleString()}</td>
                   <td className="px-5 py-3 text-amber-400 text-xs">{r.util}</td>
                   <td className="px-5 py-3 text-emerald-400 text-xs">{r.roi}</td>
                 </tr>

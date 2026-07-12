@@ -6,6 +6,7 @@ import tripRoutes from './routes/trip.routes.js';
 import maintenanceRoutes from './routes/maintenance.routes.js';
 import expenseRoutes from './routes/expense.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
+import reportsRoutes from './routes/reports.routes.js';
 import { errorHandler } from './middleware/error.middleware.js';
 
 const app = express();
@@ -20,6 +21,7 @@ app.use('/api/v1/trips', tripRoutes);
 app.use('/api/v1/maintenance', maintenanceRoutes);
 app.use('/api/v1', expenseRoutes);
 app.use('/api/v1', dashboardRoutes);
+app.use('/api/v1', reportsRoutes);
 
 // Error Handler Middleware
 app.use(errorHandler);
