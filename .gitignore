@@ -6,3 +6,9 @@ node_modules/
 #mail notification service
 mail_notification_service/node_modules/
 mail_notification_service/.env
+
+
+#frontend
+frontend/node_modules/
+frontend/.env
+frontend/.gitignore
