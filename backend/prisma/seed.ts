@@ -351,6 +351,128 @@ const maintenanceData = [
   },
 ];
 
+const fuelLogsData = [
+  {
+    id: "FL-LOG-991",
+    fuelLogId: "FL-991",
+    vehicleId: "V-001",
+    driverId: "D-001",
+    liters: 180,
+    cost: 31500,
+    date: new Date("2025-01-13"),
+    odometer: 142100,
+    station: "Total Energies Mombasa Rd",
+    efficiency: "2.8 km/L"
+  },
+  {
+    id: "FL-LOG-990",
+    fuelLogId: "FL-990",
+    vehicleId: "V-004",
+    driverId: "D-003",
+    liters: 220,
+    cost: 38500,
+    date: new Date("2025-01-12"),
+    odometer: 288800,
+    station: "Shell Uhuru Highway",
+    efficiency: "2.3 km/L"
+  },
+  {
+    id: "FL-LOG-989",
+    fuelLogId: "FL-989",
+    vehicleId: "V-002",
+    driverId: "D-002",
+    liters: 95,
+    cost: 16625,
+    date: new Date("2025-01-12"),
+    odometer: 87220,
+    station: "Kenol Westlands",
+    efficiency: "3.6 km/L"
+  },
+  {
+    id: "FL-LOG-988",
+    fuelLogId: "FL-988",
+    vehicleId: "V-005",
+    driverId: "D-006",
+    liters: 160,
+    cost: 28000,
+    date: new Date("2025-01-11"),
+    odometer: 198520,
+    station: "Rubis Thika Rd",
+    efficiency: "2.6 km/L"
+  },
+  {
+    id: "FL-LOG-987",
+    fuelLogId: "FL-987",
+    vehicleId: "V-006",
+    driverId: "D-004",
+    liters: 45,
+    cost: 7875,
+    date: new Date("2025-01-11"),
+    odometer: 56180,
+    station: "Total Langata Rd",
+    efficiency: "6.8 km/L"
+  }
+];
+
+const expensesData = [
+  {
+    id: "EX-EXP-551",
+    expenseId: "EX-551",
+    vehicleId: "V-003",
+    type: "Maintenance",
+    amount: 85000,
+    receipt: "RCP-3421",
+    status: "Approved",
+    date: new Date("2025-01-12"),
+    description: "Engine overhaul"
+  },
+  {
+    id: "EX-EXP-550",
+    expenseId: "EX-550",
+    vehicleId: "V-001",
+    type: "Fuel",
+    amount: 31500,
+    receipt: "RCP-3420",
+    status: "Approved",
+    date: new Date("2025-01-13"),
+    description: "Diesel refuel Mombasa",
+    fuelLogId: "FL-LOG-991"
+  },
+  {
+    id: "EX-EXP-549",
+    expenseId: "EX-549",
+    vehicleId: "V-004",
+    type: "Toll",
+    amount: 4200,
+    receipt: "RCP-3419",
+    status: "Approved",
+    date: new Date("2025-01-12"),
+    description: "Nairobi Expressway toll"
+  },
+  {
+    id: "EX-EXP-548",
+    expenseId: "EX-548",
+    vehicleId: "V-002",
+    type: "Insurance",
+    amount: 124000,
+    receipt: "RCP-3418",
+    status: "Pending",
+    date: new Date("2025-01-10"),
+    description: "Annual renewal"
+  },
+  {
+    id: "EX-EXP-547",
+    expenseId: "EX-547",
+    vehicleId: "V-001",
+    type: "Repair",
+    amount: 18500,
+    receipt: "RCP-3417",
+    status: "Pending",
+    date: new Date("2025-01-09"),
+    description: "Air suspension repair"
+  }
+];
+
 async function main() {
   console.log("Seeding vehicles...");
   for (const vehicle of vehiclesData) {
@@ -385,6 +507,24 @@ async function main() {
       where: { maintenanceId: mnt.maintenanceId },
       update: mnt,
       create: mnt,
+    });
+  }
+
+  console.log("Seeding fuel logs...");
+  for (const log of fuelLogsData) {
+    await prisma.fuelLog.upsert({
+      where: { fuelLogId: log.fuelLogId },
+      update: log,
+      create: log,
+    });
+  }
+
+  console.log("Seeding expenses...");
+  for (const exp of expensesData) {
+    await prisma.expense.upsert({
+      where: { expenseId: exp.expenseId },
+      update: exp,
+      create: exp,
     });
   }
 

@@ -2501,12 +2501,303 @@ function MaintenanceMod() {
 
 function FuelExpenses() {
   const [activeTab, setActiveTab] = useState<"fuel" | "expenses">("fuel");
+  const [showForm, setShowForm] = useState(false);
+  const [errors, setErrors] = useState<string[]>([]);
 
-  const metrics = [
-    { label: "Today's Fuel Cost", value: "KES 122K", icon: Fuel, trend: "+8% vs yesterday", trendUp: false },
-    { label: "Monthly Expense", value: "KES 709K", icon: DollarSign, trend: "+3% vs last month", trendUp: false },
-    { label: "Avg Fuel Efficiency", value: "3.2 km/L", icon: Gauge, trend: "+0.2 km/L improvement", trendUp: true },
-    { label: "Maintenance Cost", value: "KES 185K", icon: Wrench, trend: "this month", trendUp: false },
+  // Lists from backend
+  const [fuelLogs, setFuelLogs] = useState<any[]>([]);
+  const [expenses, setExpenses] = useState<any[]>([]);
+  const [vehicles, setVehicles] = useState<any[]>([]);
+  const [drivers, setDrivers] = useState<any[]>([]);
+
+  // Search and Filter states
+  const [search, setSearch] = useState("");
+
+  // Chart data states
+  const [monthlyCosts, setMonthlyCosts] = useState<any[]>([]);
+  const [pieCosts, setPieCosts] = useState<any[]>([]);
+  const [consumptionLiters, setConsumptionLiters] = useState<any[]>([]);
+
+  // Summary Metrics states
+  const [metrics, setMetrics] = useState({
+    todayFuelCost: 0,
+    monthlyExpense: 0,
+    maintenanceCost: 0,
+    avgFuelEfficiency: "3.2 km/L"
+  });
+
+  // Form states - Fuel Log
+  const [fuelVehicleId, setFuelVehicleId] = useState("");
+  const [fuelDriverId, setFuelDriverId] = useState("");
+  const [fuelLiters, setFuelLiters] = useState("");
+  const [fuelCost, setFuelCost] = useState("");
+  const [fuelOdometer, setFuelOdometer] = useState("");
+  const [fuelStation, setFuelStation] = useState("");
+  const [fuelDate, setFuelDate] = useState("");
+
+  // Form states - Expense
+  const [expVehicleId, setExpVehicleId] = useState("");
+  const [expType, setExpType] = useState<"Fuel" | "Maintenance" | "Toll" | "Insurance" | "Repair" | "Other">("Toll");
+  const [expDescription, setExpDescription] = useState("");
+  const [expAmount, setExpAmount] = useState("");
+  const [expReceipt, setExpReceipt] = useState("");
+  const [expStatus, setExpStatus] = useState<"Pending" | "Approved" | "Rejected">("Pending");
+  const [expDate, setExpDate] = useState("");
+
+  const fetchMetrics = async () => {
+    try {
+      const res = await fetch("http://localhost:5000/api/v1/expenses/metrics");
+      const json = await res.json();
+      if (json.success) {
+        setMetrics(json.data);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchCharts = async () => {
+    try {
+      const res = await fetch("http://localhost:5000/api/v1/expenses/charts");
+      const json = await res.json();
+      if (json.success) {
+        setMonthlyCosts(json.data.monthlyExpenseData);
+        setPieCosts(json.data.expensePieData);
+        setConsumptionLiters(json.data.fuelConsumptionData);
+
+        // Sync global charts data in-place so Reports and Dashboard stay in sync
+        monthlyExpenseData.length = 0;
+        monthlyExpenseData.push(...json.data.monthlyExpenseData);
+
+        expensePieData.length = 0;
+        expensePieData.push(...json.data.expensePieData);
+
+        fuelConsumptionData.length = 0;
+        fuelConsumptionData.push(...json.data.fuelConsumptionData);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchVehiclesAndDrivers = async () => {
+    try {
+      const resV = await fetch("http://localhost:5000/api/v1/vehicles");
+      const jsonV = await resV.json();
+      if (jsonV.success) setVehicles(jsonV.data);
+
+      const resD = await fetch("http://localhost:5000/api/v1/drivers");
+      const jsonD = await resD.json();
+      if (jsonD.success) setDrivers(jsonD.data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchLogs = async () => {
+    try {
+      const queryParams = new URLSearchParams({
+        limit: "100",
+        search,
+      });
+      const res = await fetch(`http://localhost:5000/api/v1/fuel-logs?${queryParams.toString()}`);
+      const json = await res.json();
+      if (json.success) {
+        setFuelLogs(json.data);
+
+        // Sync global FUEL_LOGS in-place
+        FUEL_LOGS.length = 0;
+        FUEL_LOGS.push(...json.data.map((f: any) => ({
+          id: f.fuelLogId,
+          vehicle: f.vehicle?.regNumber || "—",
+          driver: f.driver?.name || "—",
+          liters: f.liters,
+          cost: Number(f.cost),
+          date: f.date ? new Date(f.date).toISOString().split('T')[0] : "",
+          odometer: f.odometer,
+          station: f.station,
+          efficiency: f.efficiency
+        })));
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchExpenses = async () => {
+    try {
+      const queryParams = new URLSearchParams({
+        limit: "100",
+        search,
+      });
+      const res = await fetch(`http://localhost:5000/api/v1/expenses?${queryParams.toString()}`);
+      const json = await res.json();
+      if (json.success) {
+        setExpenses(json.data);
+
+        // Sync global EXPENSES in-place
+        EXPENSES.length = 0;
+        EXPENSES.push(...json.data.map((e: any) => ({
+          id: e.expenseId,
+          vehicle: e.vehicle?.regNumber || "—",
+          type: e.type,
+          description: e.description,
+          amount: Number(e.amount),
+          receipt: e.receipt,
+          status: e.status,
+          date: e.date ? new Date(e.date).toISOString().split('T')[0] : ""
+        })));
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => {
+    fetchMetrics();
+    fetchCharts();
+    fetchVehiclesAndDrivers();
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "fuel") {
+      fetchLogs();
+    } else {
+      fetchExpenses();
+    }
+  }, [activeTab, search]);
+
+  const handleLogFuel = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrors([]);
+
+    const payload = {
+      vehicleId: fuelVehicleId,
+      driverId: fuelDriverId,
+      liters: Number(fuelLiters),
+      cost: Number(fuelCost),
+      odometer: Number(fuelOdometer),
+      station: fuelStation,
+      date: fuelDate || new Date().toISOString().split('T')[0]
+    };
+
+    try {
+      const res = await fetch("http://localhost:5000/api/v1/fuel-logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        setErrors([json.error?.message || "Failed to log fuel refuel."]);
+        return;
+      }
+
+      setShowForm(false);
+      setFuelVehicleId("");
+      setFuelDriverId("");
+      setFuelLiters("");
+      setFuelCost("");
+      setFuelOdometer("");
+      setFuelStation("");
+      setFuelDate("");
+
+      fetchLogs();
+      fetchMetrics();
+      fetchCharts();
+    } catch (err) {
+      console.error(err);
+      setErrors(["Network error occurred."]);
+    }
+  };
+
+  const handleLogExpense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrors([]);
+
+    const payload = {
+      vehicleId: expVehicleId,
+      type: expType,
+      description: expDescription,
+      amount: Number(expAmount),
+      receipt: expReceipt || `RCP-${Math.floor(1000 + Math.random() * 9000)}`,
+      status: expStatus,
+      date: expDate || new Date().toISOString().split('T')[0]
+    };
+
+    try {
+      const res = await fetch("http://localhost:5000/api/v1/expenses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        setErrors([json.error?.message || "Failed to log expense record."]);
+        return;
+      }
+
+      setShowForm(false);
+      setExpVehicleId("");
+      setExpType("Toll");
+      setExpDescription("");
+      setExpAmount("");
+      setExpReceipt("");
+      setExpStatus("Pending");
+      setExpDate("");
+
+      fetchExpenses();
+      fetchMetrics();
+      fetchCharts();
+    } catch (err) {
+      console.error(err);
+      setErrors(["Network error occurred."]);
+    }
+  };
+
+  const handleDeleteFuelLog = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this fuel log? This will also delete the associated fuel expense.")) return;
+    try {
+      const res = await fetch(`http://localhost:5000/api/v1/fuel-logs/${id}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        fetchLogs();
+        fetchMetrics();
+        fetchCharts();
+      } else {
+        alert(json.error?.message || "Failed to delete fuel log");
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDeleteExpense = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this expense record?")) return;
+    try {
+      const res = await fetch(`http://localhost:5000/api/v1/expenses/${id}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        fetchExpenses();
+        fetchMetrics();
+        fetchCharts();
+      } else {
+        alert(json.error?.message || "Failed to delete expense record");
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const activeKpis = [
+    { label: "Today's Fuel Cost", value: `KES ${(metrics.todayFuelCost).toLocaleString()}`, icon: Fuel, trend: "live today", trendUp: false },
+    { label: "Monthly Expense", value: `KES ${(metrics.monthlyExpense).toLocaleString()}`, icon: DollarSign, trend: "this month", trendUp: false },
+    { label: "Avg Fuel Efficiency", value: metrics.avgFuelEfficiency, icon: Gauge, trend: "fleet average", trendUp: true },
+    { label: "Maintenance Cost", value: `KES ${(metrics.maintenanceCost).toLocaleString()}`, icon: Wrench, trend: "this month", trendUp: false },
   ];
 
   return (
@@ -2516,20 +2807,19 @@ function FuelExpenses() {
         subtitle="Operational cost tracking and analytics"
         action={
           <div className="flex gap-2">
-            <Btn variant="secondary" size="sm"><Download className="w-3.5 h-3.5" />Export</Btn>
-            <Btn size="sm"><Plus className="w-3.5 h-3.5" />Log Entry</Btn>
+            <Btn size="sm" onClick={() => setShowForm(!showForm)}><Plus className="w-3.5 h-3.5" />Log Entry</Btn>
           </div>
         }
       />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        {metrics.map(m => <KpiCard key={m.label} {...m} sub="" />)}
+        {activeKpis.map(m => <KpiCard key={m.label} {...m} sub="" />)}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <ChartCard title="Monthly Operational Cost (KES)" className="md:col-span-2">
           <ResponsiveContainer width="100%" height={180}>
-            <BarChart data={monthlyExpenseData}>
+            <BarChart data={monthlyCosts.length > 0 ? monthlyCosts : monthlyExpenseData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#2B313B" />
               <XAxis dataKey="month" tick={{ fill: "#9CA3AF", fontSize: 11 }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fill: "#9CA3AF", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `${(v / 1000).toFixed(0)}K`} />
@@ -2545,14 +2835,14 @@ function FuelExpenses() {
         <ChartCard title="Expense Distribution">
           <ResponsiveContainer width="100%" height={180}>
             <RePieChart>
-              <Pie data={expensePieData} dataKey="value" cx="50%" cy="50%" outerRadius={65} innerRadius={35}>
-                {expensePieData.map((e, i) => <Cell key={i} fill={e.color} />)}
+              <Pie data={pieCosts.length > 0 ? pieCosts : expensePieData} dataKey="value" cx="50%" cy="50%" outerRadius={65} innerRadius={35}>
+                {(pieCosts.length > 0 ? pieCosts : expensePieData).map((e, i) => <Cell key={i} fill={e.color} />)}
               </Pie>
               <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => `KES ${v.toLocaleString()}`} />
             </RePieChart>
           </ResponsiveContainer>
           <div className="grid grid-cols-2 gap-1.5 mt-2">
-            {expensePieData.map(e => (
+            {(pieCosts.length > 0 ? pieCosts : expensePieData).map(e => (
               <div key={e.name} className="flex items-center gap-1.5 text-xs text-gray-400">
                 <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: e.color }} />
                 {e.name}
@@ -2561,6 +2851,116 @@ function FuelExpenses() {
           </div>
         </ChartCard>
       </div>
+
+      {showForm && (
+        <div className="mb-6 bg-[#1D2128] border border-amber-500/30 rounded-xl p-5">
+          <div className="flex items-center justify-between mb-4 border-b border-[#2B313B] pb-3">
+            <span className="text-sm font-semibold text-white">Log {activeTab === "fuel" ? "Fuel Refuel" : "Expense Entry"}</span>
+            <button type="button" onClick={() => setShowForm(false)} className="text-gray-400 hover:text-white"><X className="w-4 h-4" /></button>
+          </div>
+
+          {errors.length > 0 && (
+            <div className="mb-4 space-y-1">
+              {errors.map((e, idx) => (
+                <div key={idx} className="p-2 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded-lg">
+                  {e}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {activeTab === "fuel" ? (
+            <form onSubmit={handleLogFuel} className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">Vehicle</label>
+                <select value={fuelVehicleId} onChange={e => setFuelVehicleId(e.target.value)} className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none" required>
+                  <option value="">Select vehicle</option>
+                  {vehicles.filter(v => v.status !== "Retired").map(v => (
+                    <option key={v.id} value={v.id}>{v.regNumber} — {v.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">Driver</label>
+                <select value={fuelDriverId} onChange={e => setFuelDriverId(e.target.value)} className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none" required>
+                  <option value="">Select driver</option>
+                  {drivers.filter(d => d.status !== "Suspended").map(d => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">Liters</label>
+                <input type="number" step="any" value={fuelLiters} onChange={e => setFuelLiters(e.target.value)} placeholder="0.0" className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none" required />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">Cost (KES)</label>
+                <input type="number" value={fuelCost} onChange={e => setFuelCost(e.target.value)} placeholder="0" className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none" required />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">Odometer (km)</label>
+                <input type="number" value={fuelOdometer} onChange={e => setFuelOdometer(e.target.value)} placeholder="Current Odometer" className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none" required />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">Station</label>
+                <input value={fuelStation} onChange={e => setFuelStation(e.target.value)} placeholder="e.g. Shell Westlands" className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none" required />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">Date</label>
+                <input type="date" value={fuelDate} onChange={e => setFuelDate(e.target.value)} className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none" />
+              </div>
+              <div className="flex items-end">
+                <button type="submit" className="w-full inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all border px-4 py-2 text-sm bg-amber-500 hover:bg-amber-400 text-black border-amber-500">Log Refuel</button>
+              </div>
+            </form>
+          ) : (
+            <form onSubmit={handleLogExpense} className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">Vehicle</label>
+                <select value={expVehicleId} onChange={e => setExpVehicleId(e.target.value)} className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none" required>
+                  <option value="">Select vehicle</option>
+                  {vehicles.filter(v => v.status !== "Retired").map(v => (
+                    <option key={v.id} value={v.id}>{v.regNumber} — {v.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">Type</label>
+                <select value={expType} onChange={e => setExpType(e.target.value as any)} className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none">
+                  {["Maintenance", "Toll", "Insurance", "Repair", "Other"].map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">Description</label>
+                <input value={expDescription} onChange={e => setExpDescription(e.target.value)} placeholder="e.g. Expressway toll fee" className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none" required />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">Amount (KES)</label>
+                <input type="number" value={expAmount} onChange={e => setExpAmount(e.target.value)} placeholder="0" className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none" required />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">Receipt Code</label>
+                <input value={expReceipt} onChange={e => setExpReceipt(e.target.value)} placeholder="e.g. RCP-3450" className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">Status</label>
+                <select value={expStatus} onChange={e => setExpStatus(e.target.value as any)} className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none">
+                  <option value="Pending">Pending</option>
+                  <option value="Approved">Approved</option>
+                  <option value="Rejected">Rejected</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">Date</label>
+                <input type="date" value={expDate} onChange={e => setExpDate(e.target.value)} className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none" />
+              </div>
+              <div className="flex items-end">
+                <button type="submit" className="w-full inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all border px-4 py-2 text-sm bg-amber-500 hover:bg-amber-400 text-black border-amber-500">Log Expense</button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex border-b border-[#2B313B] mb-4">
@@ -2572,12 +2972,7 @@ function FuelExpenses() {
       </div>
 
       <div className="flex items-center gap-3 mb-4 flex-wrap">
-        <SearchBar placeholder={`Search ${activeTab}…`} className="w-64" />
-        {["Vehicle", "Date Range", "Category"].map(f => (
-          <button key={f} className="flex items-center gap-1.5 px-3 py-2 bg-[#1D2128] border border-[#2B313B] text-xs text-gray-400 rounded-lg hover:border-gray-500 transition-colors">
-            <Filter className="w-3 h-3" />{f}<ChevronDown className="w-3 h-3" />
-          </button>
-        ))}
+        <SearchBar placeholder={`Search ${activeTab}…`} value={search} onChange={e => setSearch(e.target.value)} className="w-64" />
       </div>
 
       {activeTab === "fuel" ? (
@@ -2586,25 +2981,40 @@ function FuelExpenses() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[#2B313B]">
-                  {["ID", "Vehicle", "Driver", "Liters", "Cost (KES)", "Efficiency", "Station", "Date", "Odometer"].map(h => (
+                  {["ID", "Vehicle", "Driver", "Liters", "Cost (KES)", "Efficiency", "Station", "Date", "Odometer", "Actions"].map(h => (
                     <th key={h} className="text-left px-5 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#2B313B]">
-                {FUEL_LOGS.map(f => (
-                  <tr key={f.id} className="hover:bg-[#2B313B]/40 transition-colors">
-                    <td className="px-5 py-3 font-mono text-xs text-amber-400">{f.id}</td>
-                    <td className="px-5 py-3 text-white">{f.vehicle}</td>
-                    <td className="px-5 py-3 text-gray-300">{f.driver}</td>
-                    <td className="px-5 py-3 text-gray-300">{f.liters}L</td>
-                    <td className="px-5 py-3 text-gray-300">{f.cost.toLocaleString()}</td>
+                {fuelLogs.map(f => (
+                  <tr key={f.id} className="hover:bg-[#2B313B]/40 transition-colors group">
+                    <td className="px-5 py-3 font-mono text-xs text-amber-400">{f.fuelLogId}</td>
+                    <td className="px-5 py-3 text-white text-xs">{f.vehicle?.regNumber} — {f.vehicle?.name}</td>
+                    <td className="px-5 py-3 text-gray-300 text-xs">{f.driver?.name}</td>
+                    <td className="px-5 py-3 text-gray-300 text-xs">{f.liters}L</td>
+                    <td className="px-5 py-3 text-gray-300 text-xs">KES {Number(f.cost).toLocaleString()}</td>
                     <td className="px-5 py-3 text-emerald-400 text-xs">{f.efficiency}</td>
                     <td className="px-5 py-3 text-gray-400 text-xs">{f.station}</td>
-                    <td className="px-5 py-3 text-gray-400 font-mono text-xs">{f.date}</td>
-                    <td className="px-5 py-3 text-gray-400 font-mono text-xs">{f.odometer.toLocaleString()} km</td>
+                    <td className="px-5 py-3 text-gray-400 font-mono text-xs">{f.date ? new Date(f.date).toISOString().split('T')[0] : "—"}</td>
+                    <td className="px-5 py-3 text-gray-400 font-mono text-xs">{Number(f.odometer).toLocaleString()} km</td>
+                    <td className="px-5 py-3">
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteFuelLog(f.id)}
+                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-[#2B313B] rounded text-gray-400 hover:text-red-400 transition-opacity"
+                        title="Delete Fuel Log"
+                      ><Trash2 className="w-3.5 h-3.5" /></button>
+                    </td>
                   </tr>
                 ))}
+                {fuelLogs.length === 0 && (
+                  <tr>
+                    <td colSpan={10} className="px-5 py-8 text-center text-gray-500 text-xs">
+                      No fuel logs logged.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -2615,26 +3025,43 @@ function FuelExpenses() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[#2B313B]">
-                  {["ID", "Vehicle", "Type", "Description", "Amount (KES)", "Receipt", "Status", "Date"].map(h => (
+                  {["ID", "Vehicle", "Type", "Description", "Amount (KES)", "Receipt", "Status", "Date", "Actions"].map(h => (
                     <th key={h} className="text-left px-5 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#2B313B]">
-                {EXPENSES.map(e => (
-                  <tr key={e.id} className="hover:bg-[#2B313B]/40 transition-colors">
-                    <td className="px-5 py-3 font-mono text-xs text-amber-400">{e.id}</td>
-                    <td className="px-5 py-3 text-white">{e.vehicle}</td>
+                {expenses.map(e => (
+                  <tr key={e.id} className="hover:bg-[#2B313B]/40 transition-colors group">
+                    <td className="px-5 py-3 font-mono text-xs text-amber-400">{e.expenseId}</td>
+                    <td className="px-5 py-3 text-white text-xs">{e.vehicle?.regNumber} — {e.vehicle?.name}</td>
                     <td className="px-5 py-3">
                       <span className="text-xs px-2 py-0.5 bg-[#2B313B] text-gray-300 rounded-md">{e.type}</span>
                     </td>
                     <td className="px-5 py-3 text-gray-400 text-xs">{e.description}</td>
-                    <td className="px-5 py-3 text-gray-300 font-medium">{e.amount.toLocaleString()}</td>
+                    <td className="px-5 py-3 text-gray-300 font-medium text-xs">KES {Number(e.amount).toLocaleString()}</td>
                     <td className="px-5 py-3 text-blue-400 text-xs underline cursor-pointer">{e.receipt}</td>
                     <td className="px-5 py-3"><StatusBadge status={e.status} /></td>
-                    <td className="px-5 py-3 text-gray-400 font-mono text-xs">{e.date}</td>
+                    <td className="px-5 py-3 text-gray-400 font-mono text-xs">{e.date ? new Date(e.date).toISOString().split('T')[0] : "—"}</td>
+                    <td className="px-5 py-3">
+                      {!e.fuelLogId && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteExpense(e.id)}
+                          className="opacity-0 group-hover:opacity-100 p-1 hover:bg-[#2B313B] rounded text-gray-400 hover:text-red-400 transition-opacity"
+                          title="Delete Expense Record"
+                        ><Trash2 className="w-3.5 h-3.5" /></button>
+                      )}
+                    </td>
                   </tr>
                 ))}
+                {expenses.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="px-5 py-8 text-center text-gray-500 text-xs">
+                      No expense records logged.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
