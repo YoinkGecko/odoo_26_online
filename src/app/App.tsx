@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   LayoutDashboard, Truck, Users, Navigation, Wrench, Fuel, BarChart3,
   Settings, LogOut, Bell, Search, ChevronDown, TrendingUp, TrendingDown,
@@ -209,13 +209,15 @@ function Btn({ children, variant = "primary", size = "md", onClick, className = 
   );
 }
 
-function SearchBar({ placeholder = "Search…", className = "" }: { placeholder?: string; className?: string }) {
+function SearchBar({ placeholder = "Search…", className = "", value, onChange }: { placeholder?: string; className?: string; value?: string; onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void }) {
   return (
     <div className={`relative ${className}`}>
       <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
       <input
         type="text"
         placeholder={placeholder}
+        value={value}
+        onChange={onChange}
         className="w-full pl-9 pr-4 py-2 bg-[#1D2128] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/50 transition-colors"
       />
     </div>
@@ -545,32 +547,254 @@ function Dashboard() {
 }
 
 function VehicleRegistry() {
+  const [vehicles, setVehicles] = useState<any[]>([]);
+  const [totalVehicles, setTotalVehicles] = useState(0);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [fuelFilter, setFuelFilter] = useState("");
+
   const [showDrawer, setShowDrawer] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Form states
+  const [regNumber, setRegNumber] = useState("");
+  const [name, setName] = useState("");
+  const [model, setModel] = useState("");
+  const [type, setType] = useState("Heavy Truck");
+  const [fuelType, setFuelType] = useState("Diesel");
+  const [status, setStatus] = useState("Available");
+  const [maxCapacity, setMaxCapacity] = useState("");
+  const [odometer, setOdometer] = useState("");
+  const [acquisitionCost, setAcquisitionCost] = useState("");
+  const [purchaseDate, setPurchaseDate] = useState("");
+  const [insuranceExpiry, setInsuranceExpiry] = useState("");
+
   const [selected, setSelected] = useState<string[]>([]);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  const fetchVehicles = async () => {
+    try {
+      const queryParams = new URLSearchParams({
+        page: page.toString(),
+        limit: "10",
+        search,
+        type: typeFilter,
+        status: statusFilter,
+        fuelType: fuelFilter,
+      });
+      const res = await fetch(`http://localhost:5000/api/v1/vehicles?${queryParams.toString()}`);
+      const json = await res.json();
+      if (json.success) {
+        setVehicles(json.data);
+        setTotalVehicles(json.pagination.total);
+        setTotalPages(json.pagination.totalPages);
+
+        // Update the global VEHICLES array in-place so other components stay synchronized
+        VEHICLES.length = 0;
+        VEHICLES.push(...json.data.map((v: any) => ({
+          id: v.id,
+          name: v.name,
+          type: v.type,
+          reg: v.regNumber,
+          model: v.model,
+          maxLoad: v.maxCapacity,
+          odometer: v.odometer,
+          cost: Number(v.acquisitionCost),
+          purchaseDate: v.purchaseDate ? new Date(v.purchaseDate).toISOString().split('T')[0] : "",
+          insurance: v.insuranceExpiry ? new Date(v.insuranceExpiry).toISOString().split('T')[0] : "",
+          status: v.status,
+          fuel: v.fuelType
+        })));
+      }
+    } catch (err) {
+      console.error("Error fetching vehicles:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchVehicles();
+  }, [page, search, typeFilter, statusFilter, fuelFilter]);
+
+  const resetForm = () => {
+    setEditingId(null);
+    setRegNumber("");
+    setName("");
+    setModel("");
+    setType("Heavy Truck");
+    setFuelType("Diesel");
+    setStatus("Available");
+    setMaxCapacity("");
+    setOdometer("");
+    setAcquisitionCost("");
+    setPurchaseDate("");
+    setInsuranceExpiry("");
+    setErrorMsg("");
+  };
+
+  const handleEditClick = (v: any) => {
+    setEditingId(v.id);
+    setRegNumber(v.regNumber);
+    setName(v.name);
+    setModel(v.model);
+    setType(v.type);
+    setFuelType(v.fuelType);
+    setStatus(v.status);
+    setMaxCapacity(v.maxCapacity.toString());
+    setOdometer(v.odometer.toString());
+    setAcquisitionCost(Number(v.acquisitionCost).toString());
+    setPurchaseDate(v.purchaseDate ? new Date(v.purchaseDate).toISOString().split('T')[0] : "");
+    setInsuranceExpiry(v.insuranceExpiry ? new Date(v.insuranceExpiry).toISOString().split('T')[0] : "");
+    setShowDrawer(true);
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this vehicle?")) return;
+    try {
+      const res = await fetch(`http://localhost:5000/api/v1/vehicles/${id}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        fetchVehicles();
+        setSelected(prev => prev.filter(s => s !== id));
+      } else {
+        alert(json.error?.message || "Failed to delete vehicle");
+      }
+    } catch (err) {
+      console.error("Error deleting vehicle:", err);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (!confirm(`Are you sure you want to delete the ${selected.length} selected vehicles?`)) return;
+    try {
+      await Promise.all(
+        selected.map(id =>
+          fetch(`http://localhost:5000/api/v1/vehicles/${id}`, {
+            method: "DELETE",
+          })
+        )
+      );
+      setSelected([]);
+      fetchVehicles();
+    } catch (err) {
+      console.error("Error in bulk delete:", err);
+    }
+  };
+
+  const handleSaveVehicle = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg("");
+
+    const payload = {
+      regNumber,
+      name,
+      model,
+      type,
+      fuelType,
+      status,
+      maxCapacity: Number(maxCapacity),
+      odometer: Number(odometer),
+      acquisitionCost: Number(acquisitionCost),
+      purchaseDate,
+      insuranceExpiry,
+    };
+
+    try {
+      let res;
+      if (editingId) {
+        res = await fetch(`http://localhost:5000/api/v1/vehicles/${editingId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      } else {
+        res = await fetch("http://localhost:5000/api/v1/vehicles", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
+
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        setErrorMsg(json.error?.message || "Failed to save vehicle");
+        return;
+      }
+
+      setShowDrawer(false);
+      resetForm();
+      fetchVehicles();
+    } catch (err) {
+      console.error("Error saving vehicle:", err);
+      setErrorMsg("Network error occurred.");
+    }
+  };
 
   return (
     <div>
       <SectionHeader
         title="Vehicle Registry"
-        subtitle={`${VEHICLES.length} vehicles registered`}
+        subtitle={`${totalVehicles} vehicles registered`}
         action={
           <div className="flex gap-2">
             <Btn variant="secondary" size="sm"><Download className="w-3.5 h-3.5" />Export CSV</Btn>
-            <Btn size="sm" onClick={() => setShowDrawer(true)}><Plus className="w-3.5 h-3.5" />Add Vehicle</Btn>
+            <Btn size="sm" onClick={() => { resetForm(); setShowDrawer(true); }}><Plus className="w-3.5 h-3.5" />Add Vehicle</Btn>
           </div>
         }
       />
 
       {/* Filters */}
       <div className="flex items-center gap-3 mb-5 flex-wrap">
-        <SearchBar placeholder="Search by reg, name, or type…" className="w-64" />
-        {["Vehicle Type", "Status", "Fuel Type"].map(f => (
-          <button key={f} className="flex items-center gap-1.5 px-3 py-2 bg-[#1D2128] border border-[#2B313B] text-xs text-gray-400 rounded-lg hover:border-gray-500 transition-colors">
-            <Filter className="w-3 h-3" />{f}<ChevronDown className="w-3 h-3" />
-          </button>
-        ))}
+        <SearchBar
+          placeholder="Search by reg, name, or type…"
+          value={search}
+          onChange={e => { setSearch(e.target.value); setPage(1); }}
+          className="w-64"
+        />
+
+        <select
+          value={typeFilter}
+          onChange={e => { setTypeFilter(e.target.value); setPage(1); }}
+          className="px-3 py-2 bg-[#1D2128] border border-[#2B313B] text-xs text-gray-400 rounded-lg hover:border-gray-500 transition-colors focus:outline-none"
+        >
+          <option value="">All Types</option>
+          <option value="Heavy Truck">Heavy Truck</option>
+          <option value="Medium Truck">Medium Truck</option>
+          <option value="Pickup">Pickup</option>
+          <option value="Van">Van</option>
+          <option value="Bus">Bus</option>
+        </select>
+
+        <select
+          value={statusFilter}
+          onChange={e => { setStatusFilter(e.target.value); setPage(1); }}
+          className="px-3 py-2 bg-[#1D2128] border border-[#2B313B] text-xs text-gray-400 rounded-lg hover:border-gray-500 transition-colors focus:outline-none"
+        >
+          <option value="">All Statuses</option>
+          <option value="Available">Available</option>
+          <option value="On Trip">On Trip</option>
+          <option value="In Shop">In Shop</option>
+          <option value="Retired">Retired</option>
+        </select>
+
+        <select
+          value={fuelFilter}
+          onChange={e => { setFuelFilter(e.target.value); setPage(1); }}
+          className="px-3 py-2 bg-[#1D2128] border border-[#2B313B] text-xs text-gray-400 rounded-lg hover:border-gray-500 transition-colors focus:outline-none"
+        >
+          <option value="">All Fuel Types</option>
+          <option value="Diesel">Diesel</option>
+          <option value="Petrol">Petrol</option>
+          <option value="Electric">Electric</option>
+          <option value="Hybrid">Hybrid</option>
+        </select>
+
         {selected.length > 0 && (
-          <Btn variant="danger" size="sm"><Trash2 className="w-3.5 h-3.5" />Delete ({selected.length})</Btn>
+          <Btn variant="danger" size="sm" onClick={handleBulkDelete}><Trash2 className="w-3.5 h-3.5" />Delete ({selected.length})</Btn>
         )}
       </div>
 
@@ -580,117 +804,242 @@ function VehicleRegistry() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[#2B313B]">
-                <th className="px-4 py-3"><input type="checkbox" className="accent-amber-500" /></th>
+                <th className="px-4 py-3">
+                  <input
+                    type="checkbox"
+                    className="accent-amber-500"
+                    checked={vehicles.length > 0 && selected.length === vehicles.length}
+                    onChange={e => setSelected(e.target.checked ? vehicles.map(v => v.id) : [])}
+                  />
+                </th>
                 {["Reg No.", "Vehicle", "Type", "Max Load", "Odometer", "Insurance Expiry", "Cost", "Status", "Actions"].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-[#2B313B]">
-              {VEHICLES.map(v => (
+              {vehicles.map(v => (
                 <tr key={v.id} className="hover:bg-[#2B313B]/40 transition-colors group">
                   <td className="px-4 py-3">
-                    <input type="checkbox" className="accent-amber-500" checked={selected.includes(v.id)} onChange={e => setSelected(e.target.checked ? [...selected, v.id] : selected.filter(s => s !== v.id))} />
+                    <input
+                      type="checkbox"
+                      className="accent-amber-500"
+                      checked={selected.includes(v.id)}
+                      onChange={e => setSelected(e.target.checked ? [...selected, v.id] : selected.filter(s => s !== v.id))}
+                    />
                   </td>
-                  <td className="px-4 py-3 font-mono text-xs text-amber-400">{v.reg}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-amber-400">{v.regNumber}</td>
                   <td className="px-4 py-3">
                     <div className="text-white font-medium">{v.name}</div>
                     <div className="text-xs text-gray-500">{v.model}</div>
                   </td>
                   <td className="px-4 py-3 text-gray-400 text-xs">{v.type}</td>
-                  <td className="px-4 py-3 text-gray-300 text-xs">{v.maxLoad.toLocaleString()} kg</td>
+                  <td className="px-4 py-3 text-gray-300 text-xs">{v.maxCapacity.toLocaleString()} kg</td>
                   <td className="px-4 py-3 text-gray-300 font-mono text-xs">{v.odometer.toLocaleString()} km</td>
                   <td className="px-4 py-3">
-                    <span className={`text-xs font-mono ${new Date(v.insurance) < new Date() ? "text-red-400" : new Date(v.insurance) < new Date(Date.now() + 60 * 24 * 60 * 60 * 1000) ? "text-amber-400" : "text-gray-400"}`}>
-                      {v.insurance}
+                    <span className={`text-xs font-mono ${new Date(v.insuranceExpiry) < new Date() ? "text-red-400" : new Date(v.insuranceExpiry) < new Date(Date.now() + 60 * 24 * 60 * 60 * 1000) ? "text-amber-400" : "text-gray-400"}`}>
+                      {v.insuranceExpiry ? new Date(v.insuranceExpiry).toISOString().split('T')[0] : "—"}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-gray-300 text-xs">KES {v.cost.toLocaleString()}</td>
+                  <td className="px-4 py-3 text-gray-300 text-xs">KES {Number(v.acquisitionCost).toLocaleString()}</td>
                   <td className="px-4 py-3"><StatusBadge status={v.status} /></td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button className="p-1 hover:bg-[#2B313B] rounded text-gray-400 hover:text-white transition-colors"><Eye className="w-3.5 h-3.5" /></button>
-                      <button className={`p-1 hover:bg-[#2B313B] rounded text-gray-400 hover:text-white transition-colors ${v.status === "Retired" ? "opacity-30 cursor-not-allowed" : ""}`} disabled={v.status === "Retired"}>
+                      <button
+                        type="button"
+                        onClick={() => alert(`Vehicle ID: ${v.id}\nReg No: ${v.regNumber}\nName: ${v.name}\nModel: ${v.model}\nType: ${v.type}\nOdometer: ${v.odometer} km\nMax Capacity: ${v.maxCapacity} kg\nStatus: ${v.status}`)}
+                        className="p-1 hover:bg-[#2B313B] rounded text-gray-400 hover:text-white transition-colors"
+                      ><Eye className="w-3.5 h-3.5" /></button>
+                      <button
+                        type="button"
+                        onClick={() => handleEditClick(v)}
+                        className={`p-1 hover:bg-[#2B313B] rounded text-gray-400 hover:text-white transition-colors ${v.status === "Retired" ? "opacity-30 cursor-not-allowed" : ""}`}
+                        disabled={v.status === "Retired"}
+                      >
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
-                      <button className="p-1 hover:bg-[#2B313B] rounded text-gray-400 hover:text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(v.id)}
+                        className="p-1 hover:bg-[#2B313B] rounded text-gray-400 hover:text-red-400 transition-colors"
+                      ><Trash2 className="w-3.5 h-3.5" /></button>
                     </div>
                   </td>
                 </tr>
               ))}
+              {vehicles.length === 0 && (
+                <tr>
+                  <td colSpan={10} className="px-4 py-8 text-center text-gray-500 text-xs">
+                    No vehicles found matching search criteria.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
         <div className="flex items-center justify-between px-5 py-3 border-t border-[#2B313B]">
-          <span className="text-xs text-gray-500">Showing 7 of 7 vehicles</span>
+          <span className="text-xs text-gray-500">Showing {vehicles.length} of {totalVehicles} vehicles</span>
           <div className="flex items-center gap-1">
-            {[1].map(p => (
-              <button key={p} className="w-7 h-7 rounded-md text-xs bg-amber-500 text-black font-semibold">{p}</button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+              <button
+                key={p}
+                onClick={() => setPage(p)}
+                className={`w-7 h-7 rounded-md text-xs font-semibold ${page === p ? "bg-amber-500 text-black" : "bg-[#1D2128] text-gray-400 hover:text-white"}`}
+              >{p}</button>
             ))}
           </div>
         </div>
       </div>
 
-      {/* Add Vehicle Drawer */}
+      {/* Add/Edit Vehicle Drawer */}
       {showDrawer && (
         <div className="fixed inset-0 z-50 flex justify-end">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setShowDrawer(false)} />
-          <div className="relative w-full max-w-lg bg-[#171A1F] border-l border-[#2B313B] h-full overflow-y-auto">
+          <div className="absolute inset-0 bg-black/60" onClick={() => { setShowDrawer(false); resetForm(); }} />
+          <form onSubmit={handleSaveVehicle} className="relative w-full max-w-lg bg-[#171A1F] border-l border-[#2B313B] h-full overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-5 border-b border-[#2B313B]">
               <div>
-                <div className="text-base font-semibold text-white">Add New Vehicle</div>
+                <div className="text-base font-semibold text-white">{editingId ? "Edit Vehicle" : "Add New Vehicle"}</div>
                 <div className="text-xs text-gray-500 mt-0.5">All fields are required unless marked optional</div>
               </div>
-              <button onClick={() => setShowDrawer(false)} className="p-1.5 hover:bg-[#2B313B] rounded-lg text-gray-400 hover:text-white transition-colors">
+              <button type="button" onClick={() => { setShowDrawer(false); resetForm(); }} className="p-1.5 hover:bg-[#2B313B] rounded-lg text-gray-400 hover:text-white transition-colors">
                 <X className="w-4 h-4" />
               </button>
             </div>
+            
             <div className="px-6 py-5 space-y-4">
-              {[
-                { label: "Registration Number", placeholder: "KCA 000X", note: "Must be unique" },
-                { label: "Vehicle Name", placeholder: "e.g. Mercedes Actros 2545" },
-                { label: "VIN", placeholder: "Vehicle Identification Number" },
-              ].map(f => (
-                <div key={f.label}>
-                  <label className="text-xs font-medium text-gray-400 mb-1.5 block">{f.label}</label>
-                  <input placeholder={f.placeholder} className="w-full px-3 py-2 bg-[#1D2128] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50 transition-colors" />
-                  {f.note && <p className="text-xs text-gray-600 mt-1">{f.note}</p>}
+              {errorMsg && (
+                <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded-lg flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{errorMsg}</span>
                 </div>
-              ))}
+              )}
 
-              {[
-                { label: "Vehicle Type", options: ["Heavy Truck", "Medium Truck", "Pickup", "Van", "Bus"] },
-                { label: "Fuel Type", options: ["Diesel", "Petrol", "Electric", "Hybrid"] },
-                { label: "Status", options: ["Available", "In Shop"] },
-              ].map(f => (
-                <div key={f.label}>
-                  <label className="text-xs font-medium text-gray-400 mb-1.5 block">{f.label}</label>
-                  <select className="w-full px-3 py-2 bg-[#1D2128] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none focus:border-amber-500/50 transition-colors">
-                    {f.options.map(o => <option key={o}>{o}</option>)}
-                  </select>
-                </div>
-              ))}
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">Registration Number</label>
+                <input
+                  value={regNumber}
+                  onChange={e => setRegNumber(e.target.value)}
+                  placeholder="KCA 000X"
+                  className="w-full px-3 py-2 bg-[#1D2128] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50 transition-colors"
+                  required
+                />
+                <p className="text-xs text-gray-600 mt-1">Must be unique (e.g., KCA 123A)</p>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">Vehicle Name</label>
+                <input
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  placeholder="e.g. Mercedes Actros"
+                  className="w-full px-3 py-2 bg-[#1D2128] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50 transition-colors"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">Model</label>
+                <input
+                  value={model}
+                  onChange={e => setModel(e.target.value)}
+                  placeholder="e.g. Actros 2545"
+                  className="w-full px-3 py-2 bg-[#1D2128] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50 transition-colors"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">Vehicle Type</label>
+                <select
+                  value={type}
+                  onChange={e => setType(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#1D2128] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none focus:border-amber-500/50 transition-colors"
+                >
+                  {["Heavy Truck", "Medium Truck", "Pickup", "Van", "Bus"].map(o => <option key={o}>{o}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">Fuel Type</label>
+                <select
+                  value={fuelType}
+                  onChange={e => setFuelType(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#1D2128] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none focus:border-amber-500/50 transition-colors"
+                >
+                  {["Diesel", "Petrol", "Electric", "Hybrid"].map(o => <option key={o}>{o}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">Status</label>
+                <select
+                  value={status}
+                  onChange={e => setStatus(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#1D2128] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none focus:border-amber-500/50 transition-colors"
+                  disabled={status === "Retired" && editingId !== null}
+                >
+                  {editingId
+                    ? ["Available", "On Trip", "In Shop", "Retired"].map(o => <option key={o}>{o}</option>)
+                    : ["Available", "In Shop"].map(o => <option key={o}>{o}</option>)
+                  }
+                </select>
+              </div>
 
               <div className="grid grid-cols-2 gap-3">
-                {[
-                  { label: "Max Capacity (kg)", placeholder: "25000" },
-                  { label: "Odometer (km)", placeholder: "0" },
-                  { label: "Acquisition Cost (KES)", placeholder: "4200000" },
-                ].map(f => (
-                  <div key={f.label}>
-                    <label className="text-xs font-medium text-gray-400 mb-1.5 block">{f.label}</label>
-                    <input placeholder={f.placeholder} className="w-full px-3 py-2 bg-[#1D2128] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50 transition-colors" />
-                  </div>
-                ))}
+                <div>
+                  <label className="text-xs font-medium text-gray-400 mb-1.5 block">Max Capacity (kg)</label>
+                  <input
+                    type="number"
+                    value={maxCapacity}
+                    onChange={e => setMaxCapacity(e.target.value)}
+                    placeholder="25000"
+                    className="w-full px-3 py-2 bg-[#1D2128] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50 transition-colors"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-400 mb-1.5 block">Odometer (km)</label>
+                  <input
+                    type="number"
+                    value={odometer}
+                    onChange={e => setOdometer(e.target.value)}
+                    placeholder="0"
+                    className="w-full px-3 py-2 bg-[#1D2128] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50 transition-colors"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-400 mb-1.5 block">Acquisition Cost (KES)</label>
+                  <input
+                    type="number"
+                    value={acquisitionCost}
+                    onChange={e => setAcquisitionCost(e.target.value)}
+                    placeholder="4200000"
+                    className="w-full px-3 py-2 bg-[#1D2128] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50 transition-colors"
+                    required
+                  />
+                </div>
                 <div>
                   <label className="text-xs font-medium text-gray-400 mb-1.5 block">Purchase Date</label>
-                  <input type="date" className="w-full px-3 py-2 bg-[#1D2128] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none focus:border-amber-500/50 transition-colors" />
+                  <input
+                    type="date"
+                    value={purchaseDate}
+                    onChange={e => setPurchaseDate(e.target.value)}
+                    className="w-full px-3 py-2 bg-[#1D2128] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none focus:border-amber-500/50 transition-colors"
+                    required
+                  />
                 </div>
               </div>
 
               <div>
                 <label className="text-xs font-medium text-gray-400 mb-1.5 block">Insurance Expiry</label>
-                <input type="date" className="w-full px-3 py-2 bg-[#1D2128] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none focus:border-amber-500/50 transition-colors" />
+                <input
+                  type="date"
+                  value={insuranceExpiry}
+                  onChange={e => setInsuranceExpiry(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#1D2128] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none focus:border-amber-500/50 transition-colors"
+                  required
+                />
               </div>
 
               <div>
@@ -703,11 +1052,11 @@ function VehicleRegistry() {
               </div>
 
               <div className="flex gap-3 pt-2">
-                <Btn className="flex-1 justify-center">Save Vehicle</Btn>
-                <Btn variant="secondary" onClick={() => setShowDrawer(false)}>Cancel</Btn>
+                <button type="submit" className="inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all cursor-pointer border px-4 py-2 text-sm bg-amber-500 hover:bg-amber-400 text-black border-amber-500 flex-1">Save Vehicle</button>
+                <button type="button" className="inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all cursor-pointer border px-4 py-2 text-sm bg-[#2B313B] hover:bg-[#353d49] text-white border-[#2B313B]" onClick={() => { setShowDrawer(false); resetForm(); }}>Cancel</button>
               </div>
             </div>
-          </div>
+          </form>
         </div>
       )}
     </div>
@@ -716,8 +1065,184 @@ function VehicleRegistry() {
 
 function DriverManagement() {
   const [view, setView] = useState<"cards" | "table">("cards");
+  const [drivers, setDrivers] = useState<any[]>([]);
+  const [totalDrivers, setTotalDrivers] = useState(0);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
+
+  const [showDrawer, setShowDrawer] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Form states
+  const [name, setName] = useState("");
+  const [licenseNumber, setLicenseNumber] = useState("");
+  const [licenseCategory, setLicenseCategory] = useState("Class GV");
+  const [licenseExpiry, setLicenseExpiry] = useState("");
+  const [phone, setPhone] = useState("");
+  const [safetyScore, setSafetyScore] = useState("100");
+  const [status, setStatus] = useState("Available");
+  const [experience, setExperience] = useState("");
+  const [tripsCount, setTripsCount] = useState("0");
+  const [incidentsCount, setIncidentsCount] = useState("0");
+  const [rating, setRating] = useState("5.0");
+  const [avatar, setAvatar] = useState("");
+
+  const [errorMsg, setErrorMsg] = useState("");
+
+  const fetchDrivers = async () => {
+    try {
+      const queryParams = new URLSearchParams({
+        page: page.toString(),
+        limit: "9",
+        search,
+        status: statusFilter,
+        category: categoryFilter,
+      });
+      const res = await fetch(`http://localhost:5000/api/v1/drivers?${queryParams.toString()}`);
+      const json = await res.json();
+      if (json.success) {
+        setDrivers(json.data);
+        setTotalDrivers(json.pagination.total);
+        setTotalPages(json.pagination.totalPages);
+
+        // Update the global DRIVERS array in-place so other components stay synchronized
+        DRIVERS.length = 0;
+        DRIVERS.push(...json.data.map((d: any) => ({
+          id: d.id,
+          name: d.name,
+          license: d.licenseNumber,
+          category: d.licenseCategory,
+          expiry: d.licenseExpiry ? new Date(d.licenseExpiry).toISOString().split('T')[0] : "",
+          safety: d.safetyScore,
+          vehicle: d.vehicle || "—",
+          status: d.status,
+          experience: d.experience,
+          phone: d.phone,
+          trips: d.tripsCount,
+          incidents: d.incidentsCount,
+          rating: d.rating,
+          avatar: d.avatar
+        })));
+      }
+    } catch (err) {
+      console.error("Error fetching drivers:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchDrivers();
+  }, [page, search, statusFilter, categoryFilter]);
+
+  const resetForm = () => {
+    setEditingId(null);
+    setName("");
+    setLicenseNumber("");
+    setLicenseCategory("Class GV");
+    setLicenseExpiry("");
+    setPhone("");
+    setSafetyScore("100");
+    setStatus("Available");
+    setExperience("");
+    setTripsCount("0");
+    setIncidentsCount("0");
+    setRating("5.0");
+    setAvatar("");
+    setErrorMsg("");
+  };
+
+  const handleEditClick = (d: any) => {
+    setEditingId(d.id);
+    setName(d.name);
+    setLicenseNumber(d.licenseNumber);
+    setLicenseCategory(d.licenseCategory);
+    setLicenseExpiry(d.licenseExpiry ? new Date(d.licenseExpiry).toISOString().split('T')[0] : "");
+    setPhone(d.phone);
+    setSafetyScore(d.safetyScore.toString());
+    setStatus(d.status);
+    setExperience(d.experience);
+    setTripsCount(d.tripsCount.toString());
+    setIncidentsCount(d.incidentsCount.toString());
+    setRating(d.rating.toString());
+    setAvatar(d.avatar);
+    setShowDrawer(true);
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this driver?")) return;
+    try {
+      const res = await fetch(`http://localhost:5000/api/v1/drivers/${id}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        fetchDrivers();
+      } else {
+        alert(json.error?.message || "Failed to delete driver");
+      }
+    } catch (err) {
+      console.error("Error deleting driver:", err);
+    }
+  };
+
+  const handleSaveDriver = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg("");
+
+    const computedAvatar = name
+      ? name.split(" ").map(w => w[0]).join("").substring(0, 2).toUpperCase()
+      : "D";
+
+    const payload = {
+      name,
+      licenseNumber,
+      licenseCategory,
+      licenseExpiry,
+      phone,
+      safetyScore: Number(safetyScore),
+      status,
+      experience,
+      tripsCount: Number(tripsCount),
+      incidentsCount: Number(incidentsCount),
+      rating: Number(rating),
+      avatar: computedAvatar,
+    };
+
+    try {
+      let res;
+      if (editingId) {
+        res = await fetch(`http://localhost:5000/api/v1/drivers/${editingId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      } else {
+        res = await fetch("http://localhost:5000/api/v1/drivers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
+
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        setErrorMsg(json.error?.message || "Failed to save driver");
+        return;
+      }
+
+      setShowDrawer(false);
+      resetForm();
+      fetchDrivers();
+    } catch (err) {
+      console.error("Error saving driver:", err);
+      setErrorMsg("Network error occurred.");
+    }
+  };
 
   function licenseColor(expiry: string) {
+    if (!expiry) return "text-gray-400";
     const d = new Date(expiry);
     const now = new Date();
     if (d < now) return "text-red-400";
@@ -729,93 +1254,160 @@ function DriverManagement() {
     <div>
       <SectionHeader
         title="Driver Management"
-        subtitle={`${DRIVERS.length} drivers registered`}
+        subtitle={`${totalDrivers} drivers registered`}
         action={
           <div className="flex gap-2">
             <div className="flex bg-[#1D2128] border border-[#2B313B] rounded-lg overflow-hidden">
               {(["cards", "table"] as const).map(v => (
-                <button key={v} onClick={() => setView(v)} className={`px-3 py-1.5 text-xs font-medium capitalize transition-colors ${view === v ? "bg-[#2B313B] text-white" : "text-gray-500 hover:text-gray-300"}`}>{v}</button>
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setView(v)}
+                  className={`px-3 py-1.5 text-xs font-medium capitalize transition-colors ${view === v ? "bg-[#2B313B] text-white" : "text-gray-500 hover:text-gray-300"}`}
+                >{v}</button>
               ))}
             </div>
-            <Btn size="sm"><Plus className="w-3.5 h-3.5" />Add Driver</Btn>
+            <Btn size="sm" onClick={() => { resetForm(); setShowDrawer(true); }}><Plus className="w-3.5 h-3.5" />Add Driver</Btn>
           </div>
         }
       />
 
       <div className="flex items-center gap-3 mb-5 flex-wrap">
-        <SearchBar placeholder="Search drivers…" className="w-64" />
-        {["Status", "License Category", "Safety Score"].map(f => (
-          <button key={f} className="flex items-center gap-1.5 px-3 py-2 bg-[#1D2128] border border-[#2B313B] text-xs text-gray-400 rounded-lg hover:border-gray-500 transition-colors">
-            <Filter className="w-3 h-3" />{f}<ChevronDown className="w-3 h-3" />
-          </button>
-        ))}
+        <SearchBar
+          placeholder="Search drivers…"
+          value={search}
+          onChange={e => { setSearch(e.target.value); setPage(1); }}
+          className="w-64"
+        />
+
+        <select
+          value={statusFilter}
+          onChange={e => { setStatusFilter(e.target.value); setPage(1); }}
+          className="px-3 py-2 bg-[#1D2128] border border-[#2B313B] text-xs text-gray-400 rounded-lg hover:border-gray-500 transition-colors focus:outline-none"
+        >
+          <option value="">All Statuses</option>
+          <option value="Available">Available</option>
+          <option value="On Trip">On Trip</option>
+          <option value="Off Duty">Off Duty</option>
+          <option value="Suspended">Suspended</option>
+        </select>
+
+        <select
+          value={categoryFilter}
+          onChange={e => { setCategoryFilter(e.target.value); setPage(1); }}
+          className="px-3 py-2 bg-[#1D2128] border border-[#2B313B] text-xs text-gray-400 rounded-lg hover:border-gray-500 transition-colors focus:outline-none"
+        >
+          <option value="">All Categories</option>
+          <option value="Class GV">Class GV</option>
+          <option value="Class C">Class C</option>
+          <option value="Class B">Class B</option>
+          <option value="Class A">Class A</option>
+        </select>
       </div>
 
       {view === "cards" ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {DRIVERS.map(d => (
-            <div key={d.id} className="bg-[#1D2128] border border-[#2B313B] rounded-xl p-5 hover:border-amber-500/30 transition-all group">
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-sm font-bold text-amber-400">
-                    {d.avatar}
+        <div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {drivers.map(d => (
+              <div key={d.id} className="bg-[#1D2128] border border-[#2B313B] rounded-xl p-5 hover:border-amber-500/30 transition-all group relative">
+                <div className="absolute top-4 right-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    type="button"
+                    onClick={() => handleEditClick(d)}
+                    className="p-1 hover:bg-[#2B313B] rounded text-gray-400 hover:text-white transition-colors"
+                  ><Edit2 className="w-3.5 h-3.5" /></button>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(d.id)}
+                    className="p-1 hover:bg-[#2B313B] rounded text-gray-400 hover:text-red-400 transition-colors"
+                  ><Trash2 className="w-3.5 h-3.5" /></button>
+                </div>
+
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-sm font-bold text-amber-400">
+                      {d.avatar}
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold text-white">{d.name}</div>
+                      <div className="text-xs text-gray-500">{d.licenseCategory}</div>
+                    </div>
+                  </div>
+                  <div className="mr-8 group-hover:mr-16 transition-all">
+                    <StatusBadge status={d.status} />
+                  </div>
+                </div>
+
+                {/* Safety score */}
+                <div className="mb-4">
+                  <div className="flex justify-between items-center mb-1.5">
+                    <span className="text-xs text-gray-500">Safety Score</span>
+                    <span className={`text-sm font-bold ${d.safetyScore >= 90 ? "text-emerald-400" : d.safetyScore >= 75 ? "text-amber-400" : "text-red-400"}`}>{d.safetyScore}</span>
+                  </div>
+                  <div className="h-1.5 bg-[#2B313B] rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full ${d.safetyScore >= 90 ? "bg-emerald-400" : d.safetyScore >= 75 ? "bg-amber-400" : "bg-red-400"}`} style={{ width: `${d.safetyScore}%` }} />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs mb-3">
+                  <div>
+                    <span className="text-gray-500">Experience</span>
+                    <div className="text-gray-300 font-medium mt-0.5">{d.experience}</div>
                   </div>
                   <div>
-                    <div className="text-sm font-semibold text-white">{d.name}</div>
-                    <div className="text-xs text-gray-500">{d.category}</div>
+                    <span className="text-gray-500">Trips</span>
+                    <div className="text-gray-300 font-medium mt-0.5">{d.tripsCount.toLocaleString()}</div>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">License Expiry</span>
+                    <div className={`font-mono font-medium mt-0.5 ${licenseColor(d.licenseExpiry)}`}>
+                      {d.licenseExpiry ? new Date(d.licenseExpiry).toISOString().split('T')[0] : "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Rating</span>
+                    <div className="text-amber-400 font-medium mt-0.5 flex items-center gap-1">
+                      <Star className="w-3 h-3 fill-amber-400" />{d.rating}
+                    </div>
                   </div>
                 </div>
-                <StatusBadge status={d.status} />
-              </div>
 
-              {/* Safety score */}
-              <div className="mb-4">
-                <div className="flex justify-between items-center mb-1.5">
-                  <span className="text-xs text-gray-500">Safety Score</span>
-                  <span className={`text-sm font-bold ${d.safety >= 90 ? "text-emerald-400" : d.safety >= 75 ? "text-amber-400" : "text-red-400"}`}>{d.safety}</span>
+                <div className="flex items-center gap-1.5 text-xs text-gray-500 border-t border-[#2B313B] pt-3">
+                  <Phone className="w-3 h-3" />{d.phone}
                 </div>
-                <div className="h-1.5 bg-[#2B313B] rounded-full overflow-hidden">
-                  <div className={`h-full rounded-full ${d.safety >= 90 ? "bg-emerald-400" : d.safety >= 75 ? "bg-amber-400" : "bg-red-400"}`} style={{ width: `${d.safety}%` }} />
-                </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-2 text-xs mb-3">
-                <div>
-                  <span className="text-gray-500">Experience</span>
-                  <div className="text-gray-300 font-medium mt-0.5">{d.experience}</div>
-                </div>
-                <div>
-                  <span className="text-gray-500">Trips</span>
-                  <div className="text-gray-300 font-medium mt-0.5">{d.trips.toLocaleString()}</div>
-                </div>
-                <div>
-                  <span className="text-gray-500">License Expiry</span>
-                  <div className={`font-mono font-medium mt-0.5 ${licenseColor(d.expiry)}`}>{d.expiry}</div>
-                </div>
-                <div>
-                  <span className="text-gray-500">Rating</span>
-                  <div className="text-amber-400 font-medium mt-0.5 flex items-center gap-1">
-                    <Star className="w-3 h-3 fill-amber-400" />{d.rating}
+                {d.status === "Suspended" && (
+                  <div className="mt-3 p-2 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400 flex items-center gap-1.5">
+                    <AlertTriangle className="w-3 h-3" />Cannot be assigned to trips
                   </div>
-                </div>
+                )}
+                {d.licenseExpiry && new Date(d.licenseExpiry) < new Date() && (
+                  <div className="mt-3 p-2 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400 flex items-center gap-1.5">
+                    <XCircle className="w-3 h-3" />License expired — reassignment blocked
+                  </div>
+                )}
               </div>
-
-              <div className="flex items-center gap-1.5 text-xs text-gray-500 border-t border-[#2B313B] pt-3">
-                <Phone className="w-3 h-3" />{d.phone}
+            ))}
+            {drivers.length === 0 && (
+              <div className="col-span-full py-8 text-center text-gray-500 text-xs bg-[#1D2128] border border-[#2B313B] rounded-xl">
+                No drivers found matching search criteria.
               </div>
+            )}
+          </div>
 
-              {d.status === "Suspended" && (
-                <div className="mt-3 p-2 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400 flex items-center gap-1.5">
-                  <AlertTriangle className="w-3 h-3" />Cannot be assigned to trips
-                </div>
-              )}
-              {new Date(d.expiry) < new Date() && (
-                <div className="mt-3 p-2 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400 flex items-center gap-1.5">
-                  <XCircle className="w-3 h-3" />License expired — reassignment blocked
-                </div>
-              )}
+          {/* Pagination */}
+          <div className="flex items-center justify-between px-5 py-3 border border-[#2B313B] bg-[#1D2128] rounded-xl mt-4">
+            <span className="text-xs text-gray-500">Showing {drivers.length} of {totalDrivers} drivers</span>
+            <div className="flex items-center gap-1">
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                <button
+                  key={p}
+                  onClick={() => setPage(p)}
+                  className={`w-7 h-7 rounded-md text-xs font-semibold ${page === p ? "bg-amber-500 text-black" : "bg-[#1D2128] text-gray-400 hover:text-white"}`}
+                >{p}</button>
+              ))}
             </div>
-          ))}
+          </div>
         </div>
       ) : (
         <div className="bg-[#1D2128] border border-[#2B313B] rounded-xl overflow-hidden">
@@ -829,7 +1421,7 @@ function DriverManagement() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#2B313B]">
-                {DRIVERS.map(d => (
+                {drivers.map(d => (
                   <tr key={d.id} className="hover:bg-[#2B313B]/40 transition-colors group">
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
@@ -837,25 +1429,222 @@ function DriverManagement() {
                         <span className="font-medium text-white">{d.name}</span>
                       </div>
                     </td>
-                    <td className="px-5 py-3 font-mono text-xs text-gray-400">{d.license}</td>
-                    <td className="px-5 py-3 text-gray-400">{d.category}</td>
-                    <td className={`px-5 py-3 font-mono text-xs ${licenseColor(d.expiry)}`}>{d.expiry}</td>
-                    <td className="px-5 py-3">
-                      <span className={`text-sm font-bold ${d.safety >= 90 ? "text-emerald-400" : d.safety >= 75 ? "text-amber-400" : "text-red-400"}`}>{d.safety}</span>
+                    <td className="px-5 py-3 font-mono text-xs text-gray-400">{d.licenseNumber}</td>
+                    <td className="px-5 py-3 text-gray-400">{d.licenseCategory}</td>
+                    <td className={`px-5 py-3 font-mono text-xs ${licenseColor(d.licenseExpiry)}`}>
+                      {d.licenseExpiry ? new Date(d.licenseExpiry).toISOString().split('T')[0] : "—"}
                     </td>
-                    <td className="px-5 py-3 text-gray-400 font-mono text-xs">{d.vehicle}</td>
+                    <td className="px-5 py-3">
+                      <span className={`text-sm font-bold ${d.safetyScore >= 90 ? "text-emerald-400" : d.safetyScore >= 75 ? "text-amber-400" : "text-red-400"}`}>{d.safetyScore}</span>
+                    </td>
+                    <td className="px-5 py-3 text-gray-400 font-mono text-xs">{d.vehicle || "—"}</td>
                     <td className="px-5 py-3"><StatusBadge status={d.status} /></td>
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
-                        <button className="p-1 hover:bg-[#2B313B] rounded text-gray-400 hover:text-white"><Eye className="w-3.5 h-3.5" /></button>
-                        <button className="p-1 hover:bg-[#2B313B] rounded text-gray-400 hover:text-white"><Edit2 className="w-3.5 h-3.5" /></button>
+                        <button
+                          type="button"
+                          onClick={() => alert(`Driver ID: ${d.id}\nName: ${d.name}\nLicense: ${d.licenseNumber}\nCategory: ${d.licenseCategory}\nExpiry: ${d.licenseExpiry}\nSafety: ${d.safetyScore}\nPhone: ${d.phone}\nStatus: ${d.status}`)}
+                          className="p-1 hover:bg-[#2B313B] rounded text-gray-400 hover:text-white transition-colors"
+                        ><Eye className="w-3.5 h-3.5" /></button>
+                        <button
+                          type="button"
+                          onClick={() => handleEditClick(d)}
+                          className="p-1 hover:bg-[#2B313B] rounded text-gray-400 hover:text-white transition-colors"
+                        ><Edit2 className="w-3.5 h-3.5" /></button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(d.id)}
+                          className="p-1 hover:bg-[#2B313B] rounded text-gray-400 hover:text-red-400 transition-colors"
+                        ><Trash2 className="w-3.5 h-3.5" /></button>
                       </div>
                     </td>
                   </tr>
                 ))}
+                {drivers.length === 0 && (
+                  <tr>
+                    <td colSpan={10} className="px-5 py-8 text-center text-gray-500 text-xs">
+                      No drivers found matching search criteria.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
+          {/* Pagination */}
+          <div className="flex items-center justify-between px-5 py-3 border-t border-[#2B313B]">
+            <span className="text-xs text-gray-500">Showing {drivers.length} of {totalDrivers} drivers</span>
+            <div className="flex items-center gap-1">
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                <button
+                  key={p}
+                  onClick={() => setPage(p)}
+                  className={`w-7 h-7 rounded-md text-xs font-semibold ${page === p ? "bg-amber-500 text-black" : "bg-[#1D2128] text-gray-400 hover:text-white"}`}
+                >{p}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add/Edit Driver Drawer */}
+      {showDrawer && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-black/60" onClick={() => { setShowDrawer(false); resetForm(); }} />
+          <form onSubmit={handleSaveDriver} className="relative w-full max-w-lg bg-[#171A1F] border-l border-[#2B313B] h-full overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-5 border-b border-[#2B313B]">
+              <div>
+                <div className="text-base font-semibold text-white">{editingId ? "Edit Driver Details" : "Add New Driver"}</div>
+                <div className="text-xs text-gray-500 mt-0.5">All fields are required unless marked optional</div>
+              </div>
+              <button type="button" onClick={() => { setShowDrawer(false); resetForm(); }} className="p-1.5 hover:bg-[#2B313B] rounded-lg text-gray-400 hover:text-white transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="px-6 py-5 space-y-4">
+              {errorMsg && (
+                <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded-lg flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{errorMsg}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">Full Name</label>
+                <input
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  placeholder="e.g. James Mwangi"
+                  className="w-full px-3 py-2 bg-[#1D2128] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50 transition-colors"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">License Number</label>
+                <input
+                  value={licenseNumber}
+                  onChange={e => setLicenseNumber(e.target.value)}
+                  placeholder="DL-2019-00123"
+                  className="w-full px-3 py-2 bg-[#1D2128] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50 transition-colors"
+                  required
+                />
+                <p className="text-xs text-gray-600 mt-1">Must be unique</p>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">License Category</label>
+                <select
+                  value={licenseCategory}
+                  onChange={e => setLicenseCategory(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#1D2128] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none focus:border-amber-500/50 transition-colors"
+                >
+                  {["Class GV", "Class C", "Class B", "Class A"].map(o => <option key={o}>{o}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">License Expiry Date</label>
+                <input
+                  type="date"
+                  value={licenseExpiry}
+                  onChange={e => setLicenseExpiry(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#1D2128] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none focus:border-amber-500/50 transition-colors"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">Phone Number</label>
+                <input
+                  value={phone}
+                  onChange={e => setPhone(e.target.value)}
+                  placeholder="e.g. +254 712 345678"
+                  className="w-full px-3 py-2 bg-[#1D2128] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50 transition-colors"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">Driver Status</label>
+                <select
+                  value={status}
+                  onChange={e => setStatus(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#1D2128] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none focus:border-amber-500/50 transition-colors"
+                >
+                  {["Available", "On Trip", "Off Duty", "Suspended"].map(o => <option key={o}>{o}</option>)}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-gray-400 mb-1.5 block">Safety Score (0-100)</label>
+                  <input
+                    type="number"
+                    value={safetyScore}
+                    onChange={e => setSafetyScore(e.target.value)}
+                    placeholder="100"
+                    min="0"
+                    max="100"
+                    className="w-full px-3 py-2 bg-[#1D2128] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50 transition-colors"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-400 mb-1.5 block">Experience</label>
+                  <input
+                    value={experience}
+                    onChange={e => setExperience(e.target.value)}
+                    placeholder="e.g. 5 yrs"
+                    className="w-full px-3 py-2 bg-[#1D2128] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50 transition-colors"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-400 mb-1.5 block">Trips Count</label>
+                  <input
+                    type="number"
+                    value={tripsCount}
+                    onChange={e => setTripsCount(e.target.value)}
+                    placeholder="0"
+                    className="w-full px-3 py-2 bg-[#1D2128] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50 transition-colors"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-400 mb-1.5 block">Incidents Count</label>
+                  <input
+                    type="number"
+                    value={incidentsCount}
+                    onChange={e => setIncidentsCount(e.target.value)}
+                    placeholder="0"
+                    className="w-full px-3 py-2 bg-[#1D2128] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50 transition-colors"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">Rating (1.0 - 5.0)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={rating}
+                  onChange={e => setRating(e.target.value)}
+                  placeholder="5.0"
+                  min="1"
+                  max="5"
+                  className="w-full px-3 py-2 bg-[#1D2128] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50 transition-colors"
+                  required
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button type="submit" className="inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all cursor-pointer border px-4 py-2 text-sm bg-amber-500 hover:bg-amber-400 text-black border-amber-500 flex-1">Save Driver</button>
+                <button type="button" className="inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all cursor-pointer border px-4 py-2 text-sm bg-[#2B313B] hover:bg-[#353d49] text-white border-[#2B313B]" onClick={() => { setShowDrawer(false); resetForm(); }}>Cancel</button>
+              </div>
+            </div>
+          </form>
         </div>
       )}
     </div>
@@ -864,28 +1653,206 @@ function DriverManagement() {
 
 function TripDispatcher() {
   const [step, setStep] = useState(1);
+  const [origin, setOrigin] = useState("");
+  const [destination, setDestination] = useState("");
+  const [pickupTime, setPickupTime] = useState("");
+  const [expectedDelivery, setExpectedDelivery] = useState("");
   const [vehicle, setVehicle] = useState("");
   const [driver, setDriver] = useState("");
   const [weight, setWeight] = useState("");
+  const [cargo, setCargo] = useState("");
+  const [priority, setPriority] = useState("Normal");
+  const [notes, setNotes] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
+
+  const [vehiclesList, setVehiclesList] = useState<any[]>([]);
+  const [driversList, setDriversList] = useState<any[]>([]);
+  const [tripsList, setTripsList] = useState<any[]>([]);
 
   const steps = ["Draft", "Validation", "Dispatch", "In Progress", "Completed"];
 
-  const availableVehicles = VEHICLES.filter(v => v.status === "Available");
-  const availableDrivers = DRIVERS.filter(d => d.status === "Available" && new Date(d.expiry) > new Date() && d.status !== "Suspended");
+  const fetchVehiclesAndDrivers = async () => {
+    try {
+      const [vRes, dRes] = await Promise.all([
+        fetch("http://localhost:5000/api/v1/vehicles"),
+        fetch("http://localhost:5000/api/v1/drivers")
+      ]);
+      const vJson = await vRes.json();
+      const dJson = await dRes.json();
+      if (vJson.success) setVehiclesList(vJson.data);
+      if (dJson.success) setDriversList(dJson.data);
+    } catch (err) {
+      console.error("Error fetching vehicles and drivers:", err);
+    }
+  };
 
-  function validate() {
-    const errs: string[] = [];
-    const v = VEHICLES.find(x => x.reg === vehicle);
-    const d = DRIVERS.find(x => x.name === driver);
-    if (!vehicle) errs.push("Please select a vehicle.");
-    if (!driver) errs.push("Please select a driver.");
-    if (v && weight && parseInt(weight) > v.maxLoad) errs.push(`Cargo weight (${parseInt(weight).toLocaleString()} kg) exceeds vehicle max capacity (${v.maxLoad.toLocaleString()} kg).`);
-    if (d && d.status === "On Trip") errs.push("Selected driver is already on an active trip.");
-    if (v && v.status === "On Trip") errs.push("Selected vehicle is already on an active trip.");
-    setErrors(errs);
-    if (errs.length === 0) setStep(3);
-  }
+  const fetchTrips = async () => {
+    try {
+      const res = await fetch("http://localhost:5000/api/v1/trips?limit=100");
+      const json = await res.json();
+      if (json.success) {
+        setTripsList(json.data);
+
+        // Update the global TRIPS array in-place so other components stay synchronized automatically
+        TRIPS.length = 0;
+        TRIPS.push(...json.data.map((t: any) => ({
+          id: t.tripId,
+          vehicle: t.vehicle?.regNumber || "—",
+          driver: t.driver?.name || "—",
+          origin: t.origin,
+          destination: t.destination,
+          status: t.status,
+          eta: t.eta || "—",
+          distance: t.distance || "—",
+          cargo: t.cargo,
+          weight: t.weight,
+          priority: t.priority
+        })));
+      }
+    } catch (err) {
+      console.error("Error fetching trips:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchVehiclesAndDrivers();
+    fetchTrips();
+  }, []);
+
+  const availableVehicles = vehiclesList.filter(v => v.status === "Available");
+  const availableDrivers = driversList.filter(d => d.status === "Available" && new Date(d.licenseExpiry) > new Date());
+
+  const handleCreateTrip = async (status: 'Scheduled' | 'In Progress' | 'Draft') => {
+    setErrors([]);
+    const vObj = vehiclesList.find(x => x.regNumber === vehicle);
+    const dObj = driversList.find(x => x.name === driver);
+
+    if (!vehicle) {
+      setErrors(["Please select a vehicle."]);
+      return;
+    }
+    if (!driver) {
+      setErrors(["Please select a driver."]);
+      return;
+    }
+    if (!vObj) {
+      setErrors(["Selected vehicle not found in database."]);
+      return;
+    }
+    if (!dObj) {
+      setErrors(["Selected driver not found in database."]);
+      return;
+    }
+
+    const wNum = Number(weight);
+    if (isNaN(wNum) || wNum <= 0) {
+      setErrors(["Cargo weight must be a positive number."]);
+      return;
+    }
+
+    if (wNum > vObj.maxCapacity) {
+      setErrors([`Cargo weight (${wNum.toLocaleString()} kg) exceeds vehicle capacity (${vObj.maxCapacity.toLocaleString()} kg).`]);
+      return;
+    }
+
+    const payload = {
+      vehicleId: vObj.id,
+      driverId: dObj.id,
+      origin: origin || "Nairobi",
+      destination: destination || "Mombasa",
+      cargo: cargo || "General Goods",
+      weight: wNum,
+      priority,
+      status,
+      notes,
+      eta: pickupTime ? new Date(pickupTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "—",
+      distance: "480 km",
+    };
+
+    try {
+      const res = await fetch("http://localhost:5000/api/v1/trips", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        setErrors([json.error?.message || "Failed to save trip."]);
+        return;
+      }
+
+      // Reset Form
+      setOrigin("");
+      setDestination("");
+      setPickupTime("");
+      setExpectedDelivery("");
+      setVehicle("");
+      setDriver("");
+      setWeight("");
+      setCargo("");
+      setPriority("Normal");
+      setNotes("");
+      setStep(status === 'In Progress' ? 4 : 3);
+
+      fetchTrips();
+      fetchVehiclesAndDrivers();
+    } catch (err) {
+      console.error("Error saving trip:", err);
+      setErrors(["Network error occurred."]);
+    }
+  };
+
+  const handleDispatch = async (tripId: string) => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/v1/trips/${tripId}/dispatch`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        alert(json.error?.message || "Failed to dispatch trip");
+        return;
+      }
+      fetchTrips();
+      fetchVehiclesAndDrivers();
+    } catch (err) {
+      console.error("Error dispatching trip:", err);
+    }
+  };
+
+  const handleComplete = async (tripId: string) => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/v1/trips/${tripId}/complete`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        alert(json.error?.message || "Failed to complete trip");
+        return;
+      }
+      fetchTrips();
+      fetchVehiclesAndDrivers();
+    } catch (err) {
+      console.error("Error completing trip:", err);
+    }
+  };
+
+  const handleCancel = async (tripId: string) => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/v1/trips/${tripId}/cancel`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        alert(json.error?.message || "Failed to cancel trip");
+        return;
+      }
+      fetchTrips();
+      fetchVehiclesAndDrivers();
+    } catch (err) {
+      console.error("Error cancelling trip:", err);
+    }
+  };
 
   return (
     <div>
@@ -914,19 +1881,19 @@ function TripDispatcher() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="text-xs font-medium text-gray-400 mb-1.5 block">Origin / Source</label>
-                <input placeholder="e.g. Nairobi CBD" className="w-full px-3 py-2.5 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50 transition-colors" />
+                <input value={origin} onChange={e => setOrigin(e.target.value)} placeholder="e.g. Nairobi CBD" className="w-full px-3 py-2.5 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50 transition-colors" />
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-400 mb-1.5 block">Destination</label>
-                <input placeholder="e.g. Mombasa Port" className="w-full px-3 py-2.5 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50 transition-colors" />
+                <input value={destination} onChange={e => setDestination(e.target.value)} placeholder="e.g. Mombasa Port" className="w-full px-3 py-2.5 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50 transition-colors" />
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-400 mb-1.5 block">Pickup Time</label>
-                <input type="datetime-local" className="w-full px-3 py-2.5 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none focus:border-amber-500/50 transition-colors" />
+                <input type="datetime-local" value={pickupTime} onChange={e => setPickupTime(e.target.value)} className="w-full px-3 py-2.5 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none focus:border-amber-500/50 transition-colors" />
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-400 mb-1.5 block">Expected Delivery</label>
-                <input type="datetime-local" className="w-full px-3 py-2.5 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none focus:border-amber-500/50 transition-colors" />
+                <input type="datetime-local" value={expectedDelivery} onChange={e => setExpectedDelivery(e.target.value)} className="w-full px-3 py-2.5 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none focus:border-amber-500/50 transition-colors" />
               </div>
 
               {/* Vehicle select */}
@@ -934,11 +1901,11 @@ function TripDispatcher() {
                 <label className="text-xs font-medium text-gray-400 mb-1.5 block">Vehicle</label>
                 <select value={vehicle} onChange={e => setVehicle(e.target.value)} className="w-full px-3 py-2.5 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none focus:border-amber-500/50 transition-colors">
                   <option value="">Select a vehicle</option>
-                  {availableVehicles.map(v => <option key={v.id} value={v.reg}>{v.reg} — {v.name}</option>)}
+                  {availableVehicles.map(v => <option key={v.id} value={v.regNumber}>{v.regNumber} — {v.name}</option>)}
                 </select>
                 {vehicle && (() => {
-                  const v = VEHICLES.find(x => x.reg === vehicle);
-                  return v ? <p className="text-xs text-gray-500 mt-1">Max capacity: {v.maxLoad.toLocaleString()} kg</p> : null;
+                  const v = vehiclesList.find(x => x.regNumber === vehicle);
+                  return v ? <p className="text-xs text-gray-500 mt-1">Max capacity: {v.maxCapacity.toLocaleString()} kg</p> : null;
                 })()}
               </div>
 
@@ -947,26 +1914,33 @@ function TripDispatcher() {
                 <label className="text-xs font-medium text-gray-400 mb-1.5 block">Driver</label>
                 <select value={driver} onChange={e => setDriver(e.target.value)} className="w-full px-3 py-2.5 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none focus:border-amber-500/50 transition-colors">
                   <option value="">Select a driver</option>
-                  {availableDrivers.map(d => <option key={d.id} value={d.name}>{d.name} — {d.category}</option>)}
+                  {availableDrivers.map(d => <option key={d.id} value={d.name}>{d.name} — {d.licenseCategory}</option>)}
                 </select>
               </div>
 
               <div>
                 <label className="text-xs font-medium text-gray-400 mb-1.5 block">Cargo Weight (kg)</label>
-                <input value={weight} onChange={e => setWeight(e.target.value)} placeholder="e.g. 18500" className={`w-full px-3 py-2.5 bg-[#0F1115] border rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none transition-colors ${weight && vehicle && VEHICLES.find(v => v.reg === vehicle) && parseInt(weight) > (VEHICLES.find(v => v.reg === vehicle)?.maxLoad || 0) ? "border-red-500/50 focus:border-red-500" : "border-[#2B313B] focus:border-amber-500/50"}`} />
+                <input value={weight} onChange={e => setWeight(e.target.value)} placeholder="e.g. 18500" className={`w-full px-3 py-2.5 bg-[#0F1115] border rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none transition-colors ${weight && vehicle && vehiclesList.find(v => v.regNumber === vehicle) && parseInt(weight) > (vehiclesList.find(v => v.regNumber === vehicle)?.maxCapacity || 0) ? "border-red-500/50 focus:border-red-500" : "border-[#2B313B] focus:border-amber-500/50"}`} />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">Cargo Description</label>
+                <input value={cargo} onChange={e => setCargo(e.target.value)} placeholder="e.g. Electronics" className="w-full px-3 py-2.5 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50 transition-colors" />
               </div>
 
               <div>
                 <label className="text-xs font-medium text-gray-400 mb-1.5 block">Priority</label>
-                <select className="w-full px-3 py-2.5 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none focus:border-amber-500/50 transition-colors">
-                  <option>Normal</option><option>High</option><option>Urgent</option>
+                <select value={priority} onChange={e => setPriority(e.target.value)} className="w-full px-3 py-2.5 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none focus:border-amber-500/50 transition-colors">
+                  <option value="Normal">Normal</option>
+                  <option value="High">High</option>
+                  <option value="Urgent">Urgent</option>
                 </select>
               </div>
             </div>
 
             <div className="mt-4">
               <label className="text-xs font-medium text-gray-400 mb-1.5 block">Notes (optional)</label>
-              <textarea rows={2} placeholder="Handling instructions, special requirements…" className="w-full px-3 py-2.5 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50 transition-colors resize-none" />
+              <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="Handling instructions, special requirements…" className="w-full px-3 py-2.5 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50 transition-colors resize-none" />
             </div>
 
             {/* Validation errors */}
@@ -981,8 +1955,8 @@ function TripDispatcher() {
             )}
 
             <div className="flex gap-3 mt-5">
-              <Btn onClick={validate}><Zap className="w-3.5 h-3.5" />Validate & Dispatch</Btn>
-              <Btn variant="secondary">Save as Draft</Btn>
+              <Btn onClick={() => handleCreateTrip('In Progress')}><Zap className="w-3.5 h-3.5" />Validate & Dispatch</Btn>
+              <Btn variant="secondary" onClick={() => handleCreateTrip('Scheduled')}>Save as Draft</Btn>
             </div>
           </div>
 
@@ -1007,7 +1981,7 @@ function TripDispatcher() {
               {[
                 { label: "Vehicle Available", ok: !!vehicle, na: !vehicle },
                 { label: "Driver Available", ok: !!driver, na: !driver },
-                { label: "Capacity OK", ok: !!(weight && vehicle && parseInt(weight) <= (VEHICLES.find(v => v.reg === vehicle)?.maxLoad || 0)), na: !weight || !vehicle, err: !!(weight && vehicle && parseInt(weight) > (VEHICLES.find(v => v.reg === vehicle)?.maxLoad || 0)) },
+                { label: "Capacity OK", ok: !!(weight && vehicle && parseInt(weight) <= (vehiclesList.find(v => v.regNumber === vehicle)?.maxCapacity || 0)), na: !weight || !vehicle, err: !!(weight && vehicle && parseInt(weight) > (vehiclesList.find(v => v.regNumber === vehicle)?.maxCapacity || 0)) },
                 { label: "License Valid", ok: !!(driver && availableDrivers.find(d => d.name === driver)), na: !driver },
                 { label: "No Active Trips", ok: true, na: false },
               ].map(v => (
@@ -1026,33 +2000,42 @@ function TripDispatcher() {
           <div className="bg-[#1D2128] border border-[#2B313B] rounded-xl p-5">
             <div className="text-sm font-semibold text-white mb-4">Active Trips</div>
             <div className="space-y-3">
-              {TRIPS.filter(t => t.status === "In Progress").map(t => (
+              {tripsList.filter(t => t.status === "In Progress").map(t => (
                 <div key={t.id} className="p-3 bg-[#0F1115] border border-[#2B313B] rounded-lg">
                   <div className="flex justify-between items-start mb-1.5">
-                    <span className="font-mono text-xs text-amber-400">{t.id}</span>
+                    <span className="font-mono text-xs text-amber-400">{t.tripId}</span>
                     <StatusBadge status={t.status} />
                   </div>
                   <div className="text-xs text-gray-400">{t.origin} → {t.destination}</div>
-                  <div className="text-xs text-gray-500 mt-1">{t.driver} · {t.vehicle}</div>
+                  <div className="text-xs text-gray-500 mt-1">{t.driver?.name} · {t.vehicle?.regNumber}</div>
                   <div className="text-xs text-gray-600 mt-1 flex items-center gap-1"><Clock className="w-3 h-3" />ETA {t.eta}</div>
                 </div>
               ))}
+              {tripsList.filter(t => t.status === "In Progress").length === 0 && (
+                <p className="text-xs text-gray-500 text-center py-2">No trips currently in progress.</p>
+              )}
             </div>
           </div>
 
           {/* Scheduled Trips */}
           <div className="bg-[#1D2128] border border-[#2B313B] rounded-xl p-5">
             <div className="text-sm font-semibold text-white mb-4">Upcoming Trips</div>
-            {TRIPS.filter(t => t.status === "Scheduled").map(t => (
-              <div key={t.id} className="p-3 bg-[#0F1115] border border-[#2B313B] rounded-lg">
-                <div className="flex justify-between items-start mb-1.5">
-                  <span className="font-mono text-xs text-amber-400">{t.id}</span>
-                  <StatusBadge status={t.status} />
+            <div className="space-y-3">
+              {tripsList.filter(t => t.status === "Scheduled").map(t => (
+                <div key={t.id} className="p-3 bg-[#0F1115] border border-[#2B313B] rounded-lg">
+                  <div className="flex justify-between items-start mb-1.5">
+                    <span className="font-mono text-xs text-amber-400">{t.tripId}</span>
+                    <StatusBadge status={t.status} />
+                  </div>
+                  <div className="text-xs text-gray-400">{t.origin} → {t.destination}</div>
+                  <div className="text-xs text-gray-500 mt-1">{t.driver?.name} · {t.vehicle?.regNumber}</div>
+                  <div className="text-xs text-gray-600 mt-1 flex items-center gap-1"><Clock className="w-3 h-3" />ETA {t.eta}</div>
                 </div>
-                <div className="text-xs text-gray-400">{t.origin} → {t.destination}</div>
-                <div className="text-xs text-gray-500 mt-1">{t.eta}</div>
-              </div>
-            ))}
+              ))}
+              {tripsList.filter(t => t.status === "Scheduled").length === 0 && (
+                <p className="text-xs text-gray-500 text-center py-2">No scheduled upcoming trips.</p>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -1070,11 +2053,11 @@ function TripDispatcher() {
               </tr>
             </thead>
             <tbody className="divide-y divide-[#2B313B]">
-              {TRIPS.map(t => (
+              {tripsList.map(t => (
                 <tr key={t.id} className="hover:bg-[#2B313B]/40 transition-colors group">
-                  <td className="px-5 py-3 font-mono text-xs text-amber-400">{t.id}</td>
-                  <td className="px-5 py-3 text-white">{t.vehicle}</td>
-                  <td className="px-5 py-3 text-gray-300">{t.driver}</td>
+                  <td className="px-5 py-3 font-mono text-xs text-amber-400">{t.tripId}</td>
+                  <td className="px-5 py-3 text-white">{t.vehicle?.regNumber || "—"}</td>
+                  <td className="px-5 py-3 text-gray-300">{t.driver?.name || "—"}</td>
                   <td className="px-5 py-3 text-gray-400 text-xs">{t.origin} → {t.destination}</td>
                   <td className="px-5 py-3 text-gray-400 text-xs">{t.weight.toLocaleString()} kg</td>
                   <td className="px-5 py-3"><StatusBadge status={t.status} /></td>
@@ -1082,12 +2065,66 @@ function TripDispatcher() {
                     <span className={`text-xs font-medium ${t.priority === "Urgent" ? "text-red-400" : t.priority === "High" ? "text-amber-400" : "text-gray-400"}`}>{t.priority}</span>
                   </td>
                   <td className="px-5 py-3">
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button className="p-1 hover:bg-[#2B313B] rounded text-gray-400 hover:text-white"><Eye className="w-3.5 h-3.5" /></button>
+                    <div className="flex gap-1.5 items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      {(t.status === "Scheduled" || t.status === "Draft") && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleDispatch(t.id)}
+                            title="Dispatch Trip"
+                            className="p-1 hover:bg-[#2B313B] rounded text-emerald-400 hover:text-emerald-300 transition-colors"
+                          >
+                            <Zap className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleCancel(t.id)}
+                            title="Cancel Trip"
+                            className="p-1 hover:bg-[#2B313B] rounded text-red-400 hover:text-red-300 transition-colors"
+                          >
+                            <XCircle className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      )}
+                      {t.status === "In Progress" && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleComplete(t.id)}
+                            title="Complete Trip"
+                            className="p-1 hover:bg-[#2B313B] rounded text-emerald-400 hover:text-emerald-300 transition-colors"
+                          >
+                            <CheckCircle className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleCancel(t.id)}
+                            title="Cancel Trip"
+                            className="p-1 hover:bg-[#2B313B] rounded text-red-400 hover:text-red-300 transition-colors"
+                          >
+                            <XCircle className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => alert(`Trip Details:\nTrip ID: ${t.tripId}\nRoute: ${t.origin} -> ${t.destination}\nCargo: ${t.cargo} (${t.weight} kg)\nDriver: ${t.driver?.name}\nVehicle: ${t.vehicle?.regNumber}\nStatus: ${t.status}\nPriority: ${t.priority}\nNotes: ${t.notes || "—"}`)}
+                        title="View Details"
+                        className="p-1 hover:bg-[#2B313B] rounded text-gray-400 hover:text-white transition-colors"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </td>
                 </tr>
               ))}
+              {tripsList.length === 0 && (
+                <tr>
+                  <td colSpan={10} className="px-5 py-8 text-center text-gray-500 text-xs">
+                    No trips registered in database.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
