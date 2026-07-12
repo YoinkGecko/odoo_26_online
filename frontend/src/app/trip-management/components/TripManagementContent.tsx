@@ -1,7 +1,8 @@
 'use client';
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { toast } from 'sonner';
-import { MOCK_TRIPS, MOCK_VEHICLES, MOCK_DRIVERS, Trip, TripStatus } from '@/lib/mockData';
+import { Trip, TripStatus } from '@/lib/types';
+import { api } from '@/lib/api';
 import Icon from '@/components/ui/AppIcon';
 import StatusBadge from '@/components/ui/StatusBadge';
 import Modal from '@/components/ui/Modal';
@@ -21,9 +22,10 @@ const STATUS_FILTERS: { label: string; value: TripStatus | 'All' }[] = [
 ];
 
 export default function TripManagementContent() {
-  const [trips, setTrips] = useState<Trip[]>(MOCK_TRIPS);
-  const [vehicles] = useState(MOCK_VEHICLES);
-  const [drivers] = useState(MOCK_DRIVERS);
+  const [trips, setTrips] = useState<Trip[]>([]);
+  const [vehicles, setVehicles] = useState<Awaited<ReturnType<typeof api.vehicles.list>>>([]);
+  const [drivers, setDrivers] = useState<Awaited<ReturnType<typeof api.drivers.list>>>([]);
+  const [loading, setLoading] = useState(true);
 
   const [statusFilter, setStatusFilter] = useState<TripStatus | 'All'>('All');
   const [searchQuery, setSearchQuery] = useState('');
@@ -37,6 +39,17 @@ export default function TripManagementContent() {
     type: 'dispatch' | 'complete' | 'cancel' | 'delete';
     trip: Trip;
   } | null>(null);
+
+  useEffect(() => {
+    Promise.all([api.trips.list(), api.vehicles.list(), api.drivers.list()])
+      .then(([tripsData, vehiclesData, driversData]) => {
+        setTrips(tripsData);
+        setVehicles(vehiclesData);
+        setDrivers(driversData);
+      })
+      .catch((err) => toast.error(err.message))
+      .finally(() => setLoading(false));
+  }, []);
 
   // ─── Filter + sort ────────────────────────────────────────────────────────
   const filteredTrips = useMemo(() => {
@@ -93,56 +106,49 @@ export default function TripManagementContent() {
   };
 
   // ─── Status transitions ──────────────────────────────────────────────────
-  const executeAction = (type: 'dispatch' | 'complete' | 'cancel' | 'delete', trip: Trip) => {
-    // TODO: Replace with API call
-    // await fetch(`/api/trips/${trip.id}/${type}`, { method: 'POST' });
-
-    if (type === 'dispatch') {
-      setTrips((prev) =>
-        prev.map((t) =>
-          t.id === trip.id
-            ? { ...t, status: 'Dispatched' as TripStatus, dispatchedAt: '2026-07-12' }
-            : t
-        )
-      );
-      toast.success(`Trip ${trip.id.toUpperCase()} dispatched — vehicle & driver set to On Trip`);
-    } else if (type === 'complete') {
-      setTrips((prev) =>
-        prev.map((t) =>
-          t.id === trip.id
-            ? { ...t, status: 'Completed' as TripStatus, completedAt: '2026-07-12' }
-            : t
-        )
-      );
-      toast.success(`Trip ${trip.id.toUpperCase()} completed — vehicle & driver restored to Available`);
-    } else if (type === 'cancel') {
-      setTrips((prev) =>
-        prev.map((t) =>
-          t.id === trip.id ? { ...t, status: 'Cancelled' as TripStatus } : t
-        )
-      );
-      toast.info(`Trip ${trip.id.toUpperCase()} cancelled`);
-    } else if (type === 'delete') {
-      setTrips((prev) => prev.filter((t) => t.id !== trip.id));
-      toast.success('Trip record deleted');
+  const executeAction = async (type: 'dispatch' | 'complete' | 'cancel' | 'delete', trip: Trip) => {
+    try {
+      let updated: Trip;
+      if (type === 'dispatch') {
+        updated = await api.trips.dispatch(trip.id);
+        toast.success(`Trip ${trip.id.toUpperCase()} dispatched — vehicle & driver set to On Trip`);
+      } else if (type === 'complete') {
+        updated = await api.trips.complete(trip.id);
+        toast.success(`Trip ${trip.id.toUpperCase()} completed — vehicle & driver restored to Available`);
+      } else if (type === 'cancel') {
+        updated = await api.trips.cancel(trip.id);
+        toast.info(`Trip ${trip.id.toUpperCase()} cancelled`);
+      } else {
+        await api.trips.delete(trip.id);
+        setTrips((prev) => prev.filter((t) => t.id !== trip.id));
+        toast.success('Trip record deleted');
+        setConfirmAction(null);
+        return;
+      }
+      setTrips((prev) => prev.map((t) => (t.id === trip.id ? updated : t)));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Action failed');
     }
     setConfirmAction(null);
   };
 
   // ─── Create trip ─────────────────────────────────────────────────────────
   const handleCreateTrip = (newTrip: Trip) => {
-    // TODO: Replace with API call → POST /api/trips
-    // const response = await fetch('/api/trips', { method: 'POST', body: JSON.stringify(newTrip) });
     setTrips((prev) => [newTrip, ...prev]);
     setCreateOpen(false);
     toast.success(`Trip ${newTrip.id.toUpperCase()} created — ready to dispatch`);
   };
 
   // ─── Bulk delete ─────────────────────────────────────────────────────────
-  const handleBulkDelete = () => {
-    setTrips((prev) => prev.filter((t) => !selectedIds.has(t.id)));
-    toast.success(`${selectedIds.size} trip records deleted`);
-    setSelectedIds(new Set());
+  const handleBulkDelete = async () => {
+    try {
+      await Promise.all([...selectedIds].map((id) => api.trips.delete(id)));
+      setTrips((prev) => prev.filter((t) => !selectedIds.has(t.id)));
+      toast.success(`${selectedIds.size} trip records deleted`);
+      setSelectedIds(new Set());
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete trips');
+    }
   };
 
   const SortIcon = ({ field }: { field: SortField }) => {
@@ -258,7 +264,13 @@ export default function TripManagementContent() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filteredTrips.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={11} className="px-4 py-16 text-center text-sm text-muted-foreground">
+                    Loading trips…
+                  </td>
+                </tr>
+              ) : filteredTrips.length === 0 ? (
                 <tr>
                   <td colSpan={11} className="px-4 py-16 text-center">
                     <div className="flex flex-col items-center gap-3">
@@ -356,7 +368,6 @@ export default function TripManagementContent() {
           drivers={drivers}
           onSubmit={handleCreateTrip}
           onCancel={() => setCreateOpen(false)}
-          existingTripCount={trips.length}
         />
       </Modal>
 

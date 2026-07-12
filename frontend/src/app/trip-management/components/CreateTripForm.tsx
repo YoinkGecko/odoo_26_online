@@ -1,7 +1,8 @@
 'use client';
 import React, { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { Vehicle, Driver, Trip } from '@/lib/mockData';
+import { Vehicle, Driver, Trip } from '@/lib/types';
+import { api } from '@/lib/api';
 import Icon from '@/components/ui/AppIcon';
 
 interface CreateTripFormValues {
@@ -18,7 +19,6 @@ interface CreateTripFormProps {
   drivers: Driver[];
   onSubmit: (trip: Trip) => void;
   onCancel: () => void;
-  existingTripCount: number;
 }
 
 export default function CreateTripForm({
@@ -26,7 +26,6 @@ export default function CreateTripForm({
   drivers,
   onSubmit,
   onCancel,
-  existingTripCount,
 }: CreateTripFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -103,34 +102,23 @@ export default function CreateTripForm({
 
     setIsSubmitting(true);
 
-    // TODO: Replace with API call → POST /api/trips
-    // const response = await fetch('/api/trips', {
-    //   method: 'POST',
-    //   headers: { 'Content-Type': 'application/json' },
-    //   body: JSON.stringify(data),
-    // });
-    // const created = await response.json();
-
-    await new Promise((r) => setTimeout(r, 600));
-
-    const newTrip: Trip = {
-      id: `trip-${String(existingTripCount + 1).padStart(3, '0')}`,
-      source: data.source,
-      destination: data.destination,
-      vehicleId: vehicle.id,
-      vehicleReg: vehicle.registrationNumber,
-      driverId: driver.id,
-      driverName: driver.name,
-      cargoWeight: Number(data.cargoWeight),
-      vehicleMaxLoad: vehicle.maxLoadCapacity,
-      plannedDistance: Number(data.plannedDistance),
-      status: 'Draft',
-      createdAt: '2026-07-12',
-      eta: '2026-07-13',
-    };
-
-    setIsSubmitting(false);
-    onSubmit(newTrip);
+    try {
+      const created = await api.trips.create({
+        source: data.source,
+        destination: data.destination,
+        vehicleId: vehicle.id,
+        driverId: driver.id,
+        cargoWeight: Number(data.cargoWeight),
+        plannedDistance: Number(data.plannedDistance),
+      });
+      onSubmit(created);
+    } catch (err) {
+      setError('source', {
+        message: err instanceof Error ? err.message : 'Failed to create trip',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const inputClass = (hasError: boolean) =>

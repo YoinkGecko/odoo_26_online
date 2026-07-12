@@ -1,6 +1,6 @@
 'use client';
 import React from 'react';
-import { Trip } from '@/lib/mockData';
+import { Trip } from '@/lib/types';
 import Modal from '@/components/ui/Modal';
 import Icon from '@/components/ui/AppIcon';
 

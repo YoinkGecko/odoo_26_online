@@ -1,17 +1,9 @@
 'use client';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
-
-// TODO: Replace with API call → GET /api/dashboard/vehicle-status-breakdown
-// const response = await fetch('/api/dashboard/vehicle-status-breakdown');
-// const data = await response.json();
-
-const STATUS_DATA = [
-  { name: 'Available', value: 6, color: '#16A34A' },
-  { name: 'On Trip', value: 3, color: '#2563EB' },
-  { name: 'In Shop', value: 2, color: '#D97706' },
-  { name: 'Retired', value: 1, color: '#94A3B8' },
-];
+import { api } from '@/lib/api';
+import type { StatusBreakdown } from '@/lib/types';
 
 interface TooltipPayload {
   name: string;
@@ -34,7 +26,26 @@ function CustomTooltip({ active, payload }: CustomTooltipProps) {
 }
 
 export default function VehicleStatusChart() {
-  const total = STATUS_DATA.reduce((s, d) => s + d.value, 0);
+  const [statusData, setStatusData] = useState<StatusBreakdown[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.dashboard.vehicleStatusBreakdown()
+      .then(setStatusData)
+      .catch((err) => toast.error(err.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const total = statusData.reduce((s, d) => s + d.value, 0);
+
+  if (loading) {
+    return (
+      <div className="bg-card border border-border rounded-xl p-5 h-full animate-pulse">
+        <div className="h-4 w-32 bg-muted rounded mb-4" />
+        <div className="h-[160px] bg-muted/50 rounded" />
+      </div>
+    );
+  }
 
   return (
     <div className="bg-card border border-border rounded-xl p-5 h-full">
@@ -46,7 +57,7 @@ export default function VehicleStatusChart() {
       <ResponsiveContainer width="100%" height={160}>
         <PieChart>
           <Pie
-            data={STATUS_DATA}
+            data={statusData}
             cx="50%"
             cy="50%"
             innerRadius={50}
@@ -55,7 +66,7 @@ export default function VehicleStatusChart() {
             dataKey="value"
             strokeWidth={0}
           >
-            {STATUS_DATA.map((entry, index) => (
+            {statusData.map((entry, index) => (
               <Cell key={`cell-${entry.name}-${index}`} fill={entry.color} />
             ))}
           </Pie>
@@ -64,7 +75,7 @@ export default function VehicleStatusChart() {
       </ResponsiveContainer>
 
       <div className="mt-3 space-y-2">
-        {STATUS_DATA.map((item) => (
+        {statusData.map((item) => (
           <div key={`legend-${item.name}`} className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: item.color }} />
@@ -73,7 +84,7 @@ export default function VehicleStatusChart() {
             <div className="flex items-center gap-2">
               <span className="text-xs font-600 text-foreground font-tabular">{item.value}</span>
               <span className="text-xs text-muted-foreground font-tabular w-8 text-right">
-                {Math.round((item.value / total) * 100)}%
+                {total > 0 ? Math.round((item.value / total) * 100) : 0}%
               </span>
             </div>
           </div>

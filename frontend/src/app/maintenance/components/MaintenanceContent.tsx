@@ -1,6 +1,8 @@
 'use client';
-import React, { useState, useMemo } from 'react';
-import { MOCK_MAINTENANCE, MOCK_VEHICLES, MaintenanceLog, Vehicle, VehicleStatus } from '@/lib/mockData';
+import React, { useState, useMemo, useEffect } from 'react';
+import { toast } from 'sonner';
+import { MaintenanceLog, Vehicle, VehicleStatus } from '@/lib/types';
+import { api } from '@/lib/api';
 import Icon from '@/components/ui/AppIcon';
 
 import Modal from '@/components/ui/Modal';
@@ -16,8 +18,9 @@ const EMPTY_FORM = {
 };
 
 export default function MaintenanceContent() {
-  const [logs, setLogs] = useState<MaintenanceLog[]>(MOCK_MAINTENANCE);
-  const [vehicles, setVehicles] = useState<Vehicle[]>(MOCK_VEHICLES);
+  const [logs, setLogs] = useState<MaintenanceLog[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<'All' | 'Open' | 'Closed'>('All');
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
@@ -25,6 +28,16 @@ export default function MaintenanceContent() {
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [formError, setFormError] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<MaintenanceLog | null>(null);
+
+  useEffect(() => {
+    Promise.all([api.maintenance.list(), api.vehicles.list()])
+      .then(([logsData, vehiclesData]) => {
+        setLogs(logsData);
+        setVehicles(vehiclesData);
+      })
+      .catch((err) => toast.error(err.message))
+      .finally(() => setLoading(false));
+  }, []);
 
   const filtered = useMemo(() => {
     let r = logs;
@@ -62,7 +75,7 @@ export default function MaintenanceContent() {
     setModalOpen(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.vehicleId) {
       setFormError('Please select a vehicle.');
       return;
@@ -71,72 +84,56 @@ export default function MaintenanceContent() {
       setFormError('Description is required.');
       return;
     }
-    const vehicle = vehicles.find((v) => v.id === form.vehicleId);
-    if (!vehicle) return;
 
-    if (editLog) {
-      // TODO: Replace with API call → PUT /api/maintenance/:id
-      // await fetch(`/api/maintenance/${editLog.id}`, { method: 'PUT', body: JSON.stringify(payload) });
-      setLogs((prev) =>
-        prev.map((l) =>
-          l.id === editLog.id
-            ? {
-                ...l,
-                vehicleId: form.vehicleId,
-                vehicleReg: vehicle.registrationNumber,
-                vehicleName: vehicle.name,
-                type: form.type,
-                description: form.description.trim(),
-                openedAt: form.openedAt,
-                cost: Number(form.cost) || 0,
-              }
-            : l
-        )
-      );
-    } else {
-      // TODO: Replace with API call → POST /api/maintenance
-      // await fetch('/api/maintenance', { method: 'POST', body: JSON.stringify(payload) });
-      // Auto-transition vehicle status to "In Shop"
-      // TODO: PATCH /api/vehicles/:vehicleId { status: 'In Shop' }
-      setVehicles((prev) =>
-        prev.map((v) => (v.id === form.vehicleId ? { ...v, status: 'In Shop' as VehicleStatus } : v))
-      );
-      const newLog: MaintenanceLog = {
-        id: `mnt-${Date.now()}`,
-        vehicleId: form.vehicleId,
-        vehicleReg: vehicle.registrationNumber,
-        vehicleName: vehicle.name,
-        type: form.type,
-        description: form.description.trim(),
-        openedAt: form.openedAt,
-        cost: Number(form.cost) || 0,
-        status: 'Open',
-      };
-      setLogs((prev) => [newLog, ...prev]);
+    const payload = {
+      vehicleId: form.vehicleId,
+      type: form.type,
+      description: form.description.trim(),
+      openedAt: form.openedAt,
+      cost: Number(form.cost) || 0,
+    };
+
+    try {
+      if (editLog) {
+        const updated = await api.maintenance.update(editLog.id, payload);
+        setLogs((prev) => prev.map((l) => (l.id === editLog.id ? updated : l)));
+        toast.success('Maintenance record updated');
+      } else {
+        const created = await api.maintenance.create(payload);
+        setLogs((prev) => [created, ...prev]);
+        setVehicles((prev) =>
+          prev.map((v) => (v.id === form.vehicleId ? { ...v, status: 'In Shop' as VehicleStatus } : v))
+        );
+        toast.success('Maintenance record opened');
+      }
+      setModalOpen(false);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Failed to save record');
     }
-    setModalOpen(false);
   };
 
-  const handleClose = (log: MaintenanceLog) => {
-    // TODO: Replace with API call → PATCH /api/maintenance/:id/close
-    // await fetch(`/api/maintenance/${log.id}/close`, { method: 'PATCH' });
-    // Auto-transition vehicle status back to "Available"
-    // TODO: PATCH /api/vehicles/:vehicleId { status: 'Available' }
-    setLogs((prev) =>
-      prev.map((l) =>
-        l.id === log.id ? { ...l, status: 'Closed', closedAt: '2026-07-12' } : l
-      )
-    );
-    setVehicles((prev) =>
-      prev.map((v) => (v.id === log.vehicleId ? { ...v, status: 'Available' as VehicleStatus } : v))
-    );
+  const handleClose = async (log: MaintenanceLog) => {
+    try {
+      const updated = await api.maintenance.close(log.id);
+      setLogs((prev) => prev.map((l) => (l.id === log.id ? updated : l)));
+      setVehicles((prev) =>
+        prev.map((v) => (v.id === log.vehicleId ? { ...v, status: 'Available' as VehicleStatus } : v))
+      );
+      toast.success('Maintenance record closed');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to close record');
+    }
   };
 
-  const handleDelete = (log: MaintenanceLog) => {
-    // TODO: Replace with API call → DELETE /api/maintenance/:id
-    // await fetch(`/api/maintenance/${log.id}`, { method: 'DELETE' });
-    setLogs((prev) => prev.filter((l) => l.id !== log.id));
-    setDeleteConfirm(null);
+  const handleDelete = async (log: MaintenanceLog) => {
+    try {
+      await api.maintenance.delete(log.id);
+      setLogs((prev) => prev.filter((l) => l.id !== log.id));
+      setDeleteConfirm(null);
+      toast.success('Maintenance record deleted');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete record');
+    }
   };
 
   const openCount = logs.filter((l) => l.status === 'Open').length;
@@ -224,7 +221,13 @@ export default function MaintenanceContent() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filtered.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={8} className="px-4 py-12 text-center text-sm text-muted-foreground">
+                    Loading maintenance records…
+                  </td>
+                </tr>
+              ) : filtered.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-12 text-center text-sm text-muted-foreground">
                     No maintenance records match the current filters.

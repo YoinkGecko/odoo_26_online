@@ -1,5 +1,6 @@
 'use client';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import {
   AreaChart,
   Area,
@@ -10,11 +11,8 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from 'recharts';
-import { UTILIZATION_TREND } from '@/lib/mockData';
-
-// TODO: Replace with API call → GET /api/dashboard/utilization-trend?days=14
-// const response = await fetch('/api/dashboard/utilization-trend?days=14');
-// const data = await response.json();
+import { api } from '@/lib/api';
+import type { UtilizationPoint } from '@/lib/types';
 
 interface TooltipPayload {
   value: number;
@@ -38,6 +36,25 @@ function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
 }
 
 export default function FleetUtilizationChart() {
+  const [trendData, setTrendData] = useState<UtilizationPoint[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.dashboard.utilizationTrend(14)
+      .then(setTrendData)
+      .catch((err) => toast.error(err.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="bg-card border border-border rounded-xl p-5 h-full animate-pulse">
+        <div className="h-4 w-48 bg-muted rounded mb-4" />
+        <div className="h-[220px] bg-muted/50 rounded" />
+      </div>
+    );
+  }
+
   return (
     <div className="bg-card border border-border rounded-xl p-5 h-full">
       <div className="flex items-center justify-between mb-4">
@@ -57,7 +74,7 @@ export default function FleetUtilizationChart() {
         </div>
       </div>
       <ResponsiveContainer width="100%" height={220}>
-        <AreaChart data={UTILIZATION_TREND} margin={{ top: 4, right: 4, left: -16, bottom: 0 }}>
+        <AreaChart data={trendData} margin={{ top: 4, right: 4, left: -16, bottom: 0 }}>
           <defs>
             <linearGradient id="utilizationGradient" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.15} />

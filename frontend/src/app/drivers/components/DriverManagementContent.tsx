@@ -1,6 +1,8 @@
 'use client';
-import React, { useState, useMemo } from 'react';
-import { MOCK_DRIVERS, Driver, DriverStatus } from '@/lib/mockData';
+import React, { useState, useMemo, useEffect } from 'react';
+import { toast } from 'sonner';
+import { Driver, DriverStatus } from '@/lib/types';
+import { api } from '@/lib/api';
 import Icon from '@/components/ui/AppIcon';
 import StatusBadge from '@/components/ui/StatusBadge';
 import Modal from '@/components/ui/Modal';
@@ -28,7 +30,8 @@ function getLicenseExpiryStatus(expiry: string): { label: string; className: str
 }
 
 export default function DriverManagementContent() {
-  const [drivers, setDrivers] = useState<Driver[]>(MOCK_DRIVERS);
+  const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<DriverStatus | 'All'>('All');
   const [modalOpen, setModalOpen] = useState(false);
@@ -36,6 +39,13 @@ export default function DriverManagementContent() {
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [formError, setFormError] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<Driver | null>(null);
+
+  useEffect(() => {
+    api.drivers.list()
+      .then(setDrivers)
+      .catch((err) => toast.error(err.message))
+      .finally(() => setLoading(false));
+  }, []);
 
   const filtered = useMemo(() => {
     let r = drivers;
@@ -80,7 +90,7 @@ export default function DriverManagementContent() {
     setModalOpen(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.name.trim() || !form.licenseNumber.trim()) {
       setFormError('Driver name and license number are required.');
       return;
@@ -95,64 +105,61 @@ export default function DriverManagementContent() {
       return;
     }
 
-    if (editDriver) {
-      // TODO: Replace with API call → PUT /api/drivers/:id
-      // await fetch(`/api/drivers/${editDriver.id}`, { method: 'PUT', body: JSON.stringify(payload) });
-      setDrivers((prev) =>
-        prev.map((d) =>
-          d.id === editDriver.id
-            ? {
-                ...d,
-                name: form.name.trim(),
-                licenseNumber: form.licenseNumber.trim().toUpperCase(),
-                licenseCategory: form.licenseCategory,
-                licenseExpiry: form.licenseExpiry,
-                contactNumber: form.contactNumber.trim(),
-                safetyScore: score || d.safetyScore,
-                status: form.status,
-              }
-            : d
-        )
-      );
-    } else {
-      // TODO: Replace with API call → POST /api/drivers
-      // await fetch('/api/drivers', { method: 'POST', body: JSON.stringify(payload) });
-      const newDriver: Driver = {
-        id: `drv-${Date.now()}`,
-        name: form.name.trim(),
-        licenseNumber: form.licenseNumber.trim().toUpperCase(),
-        licenseCategory: form.licenseCategory,
-        licenseExpiry: form.licenseExpiry,
-        contactNumber: form.contactNumber.trim(),
-        safetyScore: score || 80,
-        status: form.status,
-      };
-      setDrivers((prev) => [newDriver, ...prev]);
+    const payload = {
+      name: form.name.trim(),
+      licenseNumber: form.licenseNumber.trim().toUpperCase(),
+      licenseCategory: form.licenseCategory,
+      licenseExpiry: form.licenseExpiry,
+      contactNumber: form.contactNumber.trim(),
+      safetyScore: score || 80,
+      status: form.status,
+    };
+
+    try {
+      if (editDriver) {
+        const updated = await api.drivers.update(editDriver.id, payload);
+        setDrivers((prev) => prev.map((d) => (d.id === editDriver.id ? updated : d)));
+        toast.success('Driver updated');
+      } else {
+        const created = await api.drivers.create(payload);
+        setDrivers((prev) => [created, ...prev]);
+        toast.success('Driver added');
+      }
+      setModalOpen(false);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Failed to save driver');
     }
-    setModalOpen(false);
   };
 
-  const handleDelete = (d: Driver) => {
-    // TODO: Replace with API call → DELETE /api/drivers/:id
-    // await fetch(`/api/drivers/${d.id}`, { method: 'DELETE' });
-    setDrivers((prev) => prev.filter((x) => x.id !== d.id));
-    setDeleteConfirm(null);
+  const handleDelete = async (d: Driver) => {
+    try {
+      await api.drivers.delete(d.id);
+      setDrivers((prev) => prev.filter((x) => x.id !== d.id));
+      setDeleteConfirm(null);
+      toast.success('Driver deleted');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete driver');
+    }
   };
 
-  const handleSuspend = (d: Driver) => {
-    // TODO: Replace with API call → PATCH /api/drivers/:id/suspend
-    // await fetch(`/api/drivers/${d.id}/suspend`, { method: 'PATCH' });
-    setDrivers((prev) =>
-      prev.map((x) => (x.id === d.id ? { ...x, status: 'Suspended' as DriverStatus } : x))
-    );
+  const handleSuspend = async (d: Driver) => {
+    try {
+      const updated = await api.drivers.suspend(d.id);
+      setDrivers((prev) => prev.map((x) => (x.id === d.id ? updated : x)));
+      toast.success('Driver suspended');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to suspend driver');
+    }
   };
 
-  const handleReactivate = (d: Driver) => {
-    // TODO: Replace with API call → PATCH /api/drivers/:id/reactivate
-    // await fetch(`/api/drivers/${d.id}/reactivate`, { method: 'PATCH' });
-    setDrivers((prev) =>
-      prev.map((x) => (x.id === d.id ? { ...x, status: 'Available' as DriverStatus } : x))
-    );
+  const handleReactivate = async (d: Driver) => {
+    try {
+      const updated = await api.drivers.reactivate(d.id);
+      setDrivers((prev) => prev.map((x) => (x.id === d.id ? updated : x)));
+      toast.success('Driver reactivated');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to reactivate driver');
+    }
   };
 
   return (
@@ -218,7 +225,13 @@ export default function DriverManagementContent() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filtered.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={8} className="px-4 py-12 text-center text-sm text-muted-foreground">
+                    Loading drivers…
+                  </td>
+                </tr>
+              ) : filtered.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-12 text-center text-sm text-muted-foreground">
                     No drivers match the current filters.

@@ -1,8 +1,8 @@
 'use client';
-import React, { useState, useMemo } from 'react';
-import {
-  MOCK_VEHICLES, MOCK_DRIVERS, MOCK_TRIPS, MOCK_MAINTENANCE, MOCK_FUEL_LOGS, MOCK_EXPENSES,
-} from '@/lib/mockData';
+import React, { useState, useMemo, useEffect } from 'react';
+import { toast } from 'sonner';
+import { api } from '@/lib/api';
+import type { Vehicle, Driver, Trip, MaintenanceLog, FuelLog, ExpenseLog } from '@/lib/types';
 import Icon from '@/components/ui/AppIcon';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend,  } from 'recharts';
 
@@ -28,21 +28,49 @@ export default function ReportsContent() {
   const [activeReport, setActiveReport] = useState<ReportType>('fleet');
   const [regionFilter, setRegionFilter] = useState('All');
   const [typeFilter, setTypeFilter] = useState('All');
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [trips, setTrips] = useState<Trip[]>([]);
+  const [maintenance, setMaintenance] = useState<MaintenanceLog[]>([]);
+  const [fuelLogs, setFuelLogs] = useState<FuelLog[]>([]);
+  const [expenses, setExpenses] = useState<ExpenseLog[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    Promise.all([
+      api.vehicles.list(),
+      api.drivers.list(),
+      api.trips.list(),
+      api.maintenance.list(),
+      api.fuelLogs.list(),
+      api.expenses.list(),
+    ])
+      .then(([vehiclesData, driversData, tripsData, maintenanceData, fuelData, expensesData]) => {
+        setVehicles(vehiclesData);
+        setDrivers(driversData);
+        setTrips(tripsData);
+        setMaintenance(maintenanceData);
+        setFuelLogs(fuelData);
+        setExpenses(expensesData);
+      })
+      .catch((err) => toast.error(err.message))
+      .finally(() => setLoading(false));
+  }, []);
 
   // ─── Fleet Utilization ────────────────────────────────────────────────────
   const fleetStats = useMemo(() => {
-    let vehicles = MOCK_VEHICLES;
-    if (regionFilter !== 'All') vehicles = vehicles.filter((v) => v.region === regionFilter);
-    if (typeFilter !== 'All') vehicles = vehicles.filter((v) => v.type === typeFilter);
-    const total = vehicles.length;
-    const available = vehicles.filter((v) => v.status === 'Available').length;
-    const onTrip = vehicles.filter((v) => v.status === 'On Trip').length;
-    const inShop = vehicles.filter((v) => v.status === 'In Shop').length;
-    const retired = vehicles.filter((v) => v.status === 'Retired').length;
+    let filteredVehicles = vehicles;
+    if (regionFilter !== 'All') filteredVehicles = filteredVehicles.filter((v) => v.region === regionFilter);
+    if (typeFilter !== 'All') filteredVehicles = filteredVehicles.filter((v) => v.type === typeFilter);
+    const total = filteredVehicles.length;
+    const available = filteredVehicles.filter((v) => v.status === 'Available').length;
+    const onTrip = filteredVehicles.filter((v) => v.status === 'On Trip').length;
+    const inShop = filteredVehicles.filter((v) => v.status === 'In Shop').length;
+    const retired = filteredVehicles.filter((v) => v.status === 'Retired').length;
     const utilization = total > 0 ? Math.round(((onTrip) / (total - retired)) * 100) : 0;
     const byType = ['Van', 'Truck', 'Pickup', 'Flatbed', 'Refrigerated'].map((type) => ({
       type,
-      count: vehicles.filter((v) => v.type === type).length,
+      count: filteredVehicles.filter((v) => v.type === type).length,
     })).filter((d) => d.count > 0);
     const byStatus = [
       { name: 'Available', value: available },
@@ -51,27 +79,27 @@ export default function ReportsContent() {
       { name: 'Retired', value: retired },
     ].filter((d) => d.value > 0);
     return { total, available, onTrip, inShop, retired, utilization, byType, byStatus };
-  }, [regionFilter, typeFilter]);
+  }, [vehicles, regionFilter, typeFilter]);
 
   // ─── Fuel Efficiency ──────────────────────────────────────────────────────
   const fuelStats = useMemo(() => {
-    const byVehicle = MOCK_VEHICLES.map((v) => {
-      const logs = MOCK_FUEL_LOGS.filter((l) => l.vehicleId === v.id);
+    const byVehicle = vehicles.map((v) => {
+      const logs = fuelLogs.filter((l) => l.vehicleId === v.id);
       const totalCost = logs.reduce((s, l) => s + l.totalCost, 0);
       const totalLiters = logs.reduce((s, l) => s + l.liters, 0);
-      const trips = MOCK_TRIPS.filter((t) => t.vehicleId === v.id && t.status === 'Completed');
-      const totalKm = trips.reduce((s, t) => s + t.plannedDistance, 0);
+      const completedTrips = trips.filter((t) => t.vehicleId === v.id && t.status === 'Completed');
+      const totalKm = completedTrips.reduce((s, t) => s + t.plannedDistance, 0);
       const efficiency = totalLiters > 0 && totalKm > 0 ? (totalKm / totalLiters).toFixed(2) : '—';
       return { reg: v.registrationNumber, name: v.name, totalCost, totalLiters, totalKm, efficiency };
     }).filter((d) => d.totalLiters > 0);
     return byVehicle;
-  }, []);
+  }, [vehicles, fuelLogs, trips]);
 
   // ─── Operational Cost ─────────────────────────────────────────────────────
   const costStats = useMemo(() => {
-    const fuelTotal = MOCK_FUEL_LOGS.reduce((s, l) => s + l.totalCost, 0);
-    const expenseTotal = MOCK_EXPENSES.reduce((s, e) => s + e.amount, 0);
-    const maintenanceTotal = MOCK_MAINTENANCE.reduce((s, m) => s + m.cost, 0);
+    const fuelTotal = fuelLogs.reduce((s, l) => s + l.totalCost, 0);
+    const expenseTotal = expenses.reduce((s, e) => s + e.amount, 0);
+    const maintenanceTotal = maintenance.reduce((s, m) => s + m.cost, 0);
     const byCategory = [
       { name: 'Fuel', value: fuelTotal },
       { name: 'Expenses', value: expenseTotal },
@@ -79,33 +107,31 @@ export default function ReportsContent() {
     ];
     const expenseByCategory = ['Toll', 'Parking', 'Repair', 'Cleaning', 'Other'].map((cat) => ({
       category: cat,
-      amount: MOCK_EXPENSES.filter((e) => e.category === cat).reduce((s, e) => s + e.amount, 0),
+      amount: expenses.filter((e) => e.category === cat).reduce((s, e) => s + e.amount, 0),
     })).filter((d) => d.amount > 0);
     return { fuelTotal, expenseTotal, maintenanceTotal, total: fuelTotal + expenseTotal + maintenanceTotal, byCategory, expenseByCategory };
-  }, []);
+  }, [fuelLogs, expenses, maintenance]);
 
   // ─── Driver Performance ───────────────────────────────────────────────────
   const driverStats = useMemo(() => {
-    return MOCK_DRIVERS.map((d) => {
-      const trips = MOCK_TRIPS.filter((t) => t.driverId === d.id);
-      const completed = trips.filter((t) => t.status === 'Completed').length;
-      const cancelled = trips.filter((t) => t.status === 'Cancelled').length;
-      const totalKm = trips.filter((t) => t.status === 'Completed').reduce((s, t) => s + t.plannedDistance, 0);
-      return { ...d, totalTrips: trips.length, completed, cancelled, totalKm };
+    return drivers.map((d) => {
+      const driverTrips = trips.filter((t) => t.driverId === d.id);
+      const completed = driverTrips.filter((t) => t.status === 'Completed').length;
+      const cancelled = driverTrips.filter((t) => t.status === 'Cancelled').length;
+      const totalKm = driverTrips.filter((t) => t.status === 'Completed').reduce((s, t) => s + t.plannedDistance, 0);
+      return { ...d, totalTrips: driverTrips.length, completed, cancelled, totalKm };
     }).sort((a, b) => b.safetyScore - a.safetyScore);
-  }, []);
+  }, [drivers, trips]);
 
   // ─── CSV Exports ──────────────────────────────────────────────────────────
   const handleExportFleet = () => {
-    // TODO: Replace with API call → GET /api/reports/fleet/export?format=csv
     exportCSV('fleet-utilization.csv',
       ['Reg #', 'Name', 'Type', 'Region', 'Status', 'Odometer', 'Acquisition Cost'],
-      MOCK_VEHICLES.map((v) => [v.registrationNumber, v.name, v.type, v.region, v.status, v.odometer, v.acquisitionCost])
+      vehicles.map((v) => [v.registrationNumber, v.name, v.type, v.region, v.status, v.odometer, v.acquisitionCost])
     );
   };
 
   const handleExportFuel = () => {
-    // TODO: Replace with API call → GET /api/reports/fuel/export?format=csv
     exportCSV('fuel-efficiency.csv',
       ['Vehicle Reg', 'Vehicle Name', 'Total Liters', 'Total Cost ($)', 'Total KM', 'Efficiency (km/L)'],
       fuelStats.map((d) => [d.reg, d.name, d.totalLiters.toFixed(1), d.totalCost.toFixed(2), d.totalKm, d.efficiency])
@@ -113,7 +139,6 @@ export default function ReportsContent() {
   };
 
   const handleExportCost = () => {
-    // TODO: Replace with API call → GET /api/reports/costs/export?format=csv
     exportCSV('operational-costs.csv',
       ['Category', 'Amount ($)'],
       costStats.byCategory.map((c) => [c.name, c.value.toFixed(2)])
@@ -121,7 +146,6 @@ export default function ReportsContent() {
   };
 
   const handleExportDrivers = () => {
-    // TODO: Replace with API call → GET /api/reports/drivers/export?format=csv
     exportCSV('driver-performance.csv',
       ['Driver', 'License #', 'Category', 'Safety Score', 'Total Trips', 'Completed', 'Cancelled', 'Total KM'],
       driverStats.map((d) => [d.name, d.licenseNumber, d.licenseCategory, d.safetyScore, d.totalTrips, d.completed, d.cancelled, d.totalKm])
@@ -174,6 +198,12 @@ export default function ReportsContent() {
         ))}
       </div>
 
+      {loading ? (
+        <div className="bg-card border border-border rounded-xl p-12 text-center text-sm text-muted-foreground">
+          Loading report data…
+        </div>
+      ) : (
+      <>
       {/* ── Fleet Utilization ── */}
       {activeReport === 'fleet' && (
         <div className="space-y-5">
@@ -369,6 +399,8 @@ export default function ReportsContent() {
             </div>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );

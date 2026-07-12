@@ -1,6 +1,8 @@
 'use client';
-import React, { useState, useMemo } from 'react';
-import { MOCK_FUEL_LOGS, MOCK_EXPENSES, MOCK_VEHICLES, FuelLog, ExpenseLog } from '@/lib/mockData';
+import React, { useState, useMemo, useEffect } from 'react';
+import { toast } from 'sonner';
+import { FuelLog, ExpenseLog } from '@/lib/types';
+import { api } from '@/lib/api';
 import Icon from '@/components/ui/AppIcon';
 import Modal from '@/components/ui/Modal';
 
@@ -28,9 +30,10 @@ const EMPTY_EXPENSE_FORM = {
 
 export default function FuelExpensesContent() {
   const [activeTab, setActiveTab] = useState<TabType>('fuel');
-  const [fuelLogs, setFuelLogs] = useState<FuelLog[]>(MOCK_FUEL_LOGS);
-  const [expenses, setExpenses] = useState<ExpenseLog[]>(MOCK_EXPENSES);
-  const [vehicles] = useState(MOCK_VEHICLES);
+  const [fuelLogs, setFuelLogs] = useState<FuelLog[]>([]);
+  const [expenses, setExpenses] = useState<ExpenseLog[]>([]);
+  const [vehicles, setVehicles] = useState<Awaited<ReturnType<typeof api.vehicles.list>>>([]);
+  const [loading, setLoading] = useState(true);
 
   const [fuelModalOpen, setFuelModalOpen] = useState(false);
   const [expenseModalOpen, setExpenseModalOpen] = useState(false);
@@ -42,6 +45,17 @@ export default function FuelExpensesContent() {
   const [expenseFormError, setExpenseFormError] = useState('');
   const [vehicleFilter, setVehicleFilter] = useState('All');
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: TabType; id: string } | null>(null);
+
+  useEffect(() => {
+    Promise.all([api.fuelLogs.list(), api.expenses.list(), api.vehicles.list()])
+      .then(([fuelData, expenseData, vehiclesData]) => {
+        setFuelLogs(fuelData);
+        setExpenses(expenseData);
+        setVehicles(vehiclesData);
+      })
+      .catch((err) => toast.error(err.message))
+      .finally(() => setLoading(false));
+  }, []);
 
   // ─── Computed totals ──────────────────────────────────────────────────────
   const totalFuelCost = useMemo(() => fuelLogs.reduce((s, l) => s + l.totalCost, 0), [fuelLogs]);
@@ -82,41 +96,35 @@ export default function FuelExpensesContent() {
     setFuelModalOpen(true);
   };
 
-  const handleSaveFuel = () => {
+  const handleSaveFuel = async () => {
     if (!fuelForm.vehicleId) { setFuelFormError('Please select a vehicle.'); return; }
     if (!fuelForm.liters || Number(fuelForm.liters) <= 0) { setFuelFormError('Liters must be a positive number.'); return; }
     if (!fuelForm.pricePerLiter || Number(fuelForm.pricePerLiter) <= 0) { setFuelFormError('Price per liter must be a positive number.'); return; }
-    const vehicle = vehicles.find((v) => v.id === fuelForm.vehicleId);
-    if (!vehicle) return;
-    const totalCost = Number(fuelForm.liters) * Number(fuelForm.pricePerLiter);
 
-    if (editFuel) {
-      // TODO: Replace with API call → PUT /api/fuel-logs/:id
-      // await fetch(`/api/fuel-logs/${editFuel.id}`, { method: 'PUT', body: JSON.stringify(payload) });
-      setFuelLogs((prev) =>
-        prev.map((l) =>
-          l.id === editFuel.id
-            ? { ...l, vehicleId: fuelForm.vehicleId, vehicleReg: vehicle.registrationNumber, tripId: fuelForm.tripId || undefined, date: fuelForm.date, liters: Number(fuelForm.liters), pricePerLiter: Number(fuelForm.pricePerLiter), totalCost, odometer: Number(fuelForm.odometer) || 0, station: fuelForm.station }
-            : l
-        )
-      );
-    } else {
-      // TODO: Replace with API call → POST /api/fuel-logs
-      // await fetch('/api/fuel-logs', { method: 'POST', body: JSON.stringify(payload) });
-      setFuelLogs((prev) => [{
-        id: `fuel-${Date.now()}`,
-        vehicleId: fuelForm.vehicleId,
-        vehicleReg: vehicle.registrationNumber,
-        tripId: fuelForm.tripId || undefined,
-        date: fuelForm.date,
-        liters: Number(fuelForm.liters),
-        pricePerLiter: Number(fuelForm.pricePerLiter),
-        totalCost,
-        odometer: Number(fuelForm.odometer) || 0,
-        station: fuelForm.station,
-      }, ...prev]);
+    const payload = {
+      vehicleId: fuelForm.vehicleId,
+      tripId: fuelForm.tripId || undefined,
+      date: fuelForm.date,
+      liters: Number(fuelForm.liters),
+      pricePerLiter: Number(fuelForm.pricePerLiter),
+      odometer: Number(fuelForm.odometer) || 0,
+      station: fuelForm.station,
+    };
+
+    try {
+      if (editFuel) {
+        const updated = await api.fuelLogs.update(editFuel.id, payload);
+        setFuelLogs((prev) => prev.map((l) => (l.id === editFuel.id ? updated : l)));
+        toast.success('Fuel log updated');
+      } else {
+        const created = await api.fuelLogs.create(payload);
+        setFuelLogs((prev) => [created, ...prev]);
+        toast.success('Fuel log added');
+      }
+      setFuelModalOpen(false);
+    } catch (err) {
+      setFuelFormError(err instanceof Error ? err.message : 'Failed to save fuel log');
     }
-    setFuelModalOpen(false);
   };
 
   // ─── Expense CRUD ─────────────────────────────────────────────────────────
@@ -141,50 +149,51 @@ export default function FuelExpensesContent() {
     setExpenseModalOpen(true);
   };
 
-  const handleSaveExpense = () => {
+  const handleSaveExpense = async () => {
     if (!expenseForm.vehicleId) { setExpenseFormError('Please select a vehicle.'); return; }
     if (!expenseForm.description.trim()) { setExpenseFormError('Description is required.'); return; }
     if (!expenseForm.amount || Number(expenseForm.amount) <= 0) { setExpenseFormError('Amount must be a positive number.'); return; }
-    const vehicle = vehicles.find((v) => v.id === expenseForm.vehicleId);
-    if (!vehicle) return;
 
-    if (editExpense) {
-      // TODO: Replace with API call → PUT /api/expenses/:id
-      // await fetch(`/api/expenses/${editExpense.id}`, { method: 'PUT', body: JSON.stringify(payload) });
-      setExpenses((prev) =>
-        prev.map((e) =>
-          e.id === editExpense.id
-            ? { ...e, vehicleId: expenseForm.vehicleId, vehicleReg: vehicle.registrationNumber, tripId: expenseForm.tripId || undefined, date: expenseForm.date, category: expenseForm.category, description: expenseForm.description.trim(), amount: Number(expenseForm.amount) }
-            : e
-        )
-      );
-    } else {
-      // TODO: Replace with API call → POST /api/expenses
-      // await fetch('/api/expenses', { method: 'POST', body: JSON.stringify(payload) });
-      setExpenses((prev) => [{
-        id: `exp-${Date.now()}`,
-        vehicleId: expenseForm.vehicleId,
-        vehicleReg: vehicle.registrationNumber,
-        tripId: expenseForm.tripId || undefined,
-        date: expenseForm.date,
-        category: expenseForm.category,
-        description: expenseForm.description.trim(),
-        amount: Number(expenseForm.amount),
-      }, ...prev]);
+    const payload = {
+      vehicleId: expenseForm.vehicleId,
+      tripId: expenseForm.tripId || undefined,
+      date: expenseForm.date,
+      category: expenseForm.category,
+      description: expenseForm.description.trim(),
+      amount: Number(expenseForm.amount),
+    };
+
+    try {
+      if (editExpense) {
+        const updated = await api.expenses.update(editExpense.id, payload);
+        setExpenses((prev) => prev.map((e) => (e.id === editExpense.id ? updated : e)));
+        toast.success('Expense updated');
+      } else {
+        const created = await api.expenses.create(payload);
+        setExpenses((prev) => [created, ...prev]);
+        toast.success('Expense added');
+      }
+      setExpenseModalOpen(false);
+    } catch (err) {
+      setExpenseFormError(err instanceof Error ? err.message : 'Failed to save expense');
     }
-    setExpenseModalOpen(false);
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deleteConfirm) return;
-    if (deleteConfirm.type === 'fuel') {
-      // TODO: DELETE /api/fuel-logs/:id
-      setFuelLogs((prev) => prev.filter((l) => l.id !== deleteConfirm.id));
-    } else {
-      // TODO: DELETE /api/expenses/:id
-      setExpenses((prev) => prev.filter((e) => e.id !== deleteConfirm.id));
+    try {
+      if (deleteConfirm.type === 'fuel') {
+        await api.fuelLogs.delete(deleteConfirm.id);
+        setFuelLogs((prev) => prev.filter((l) => l.id !== deleteConfirm.id));
+      } else {
+        await api.expenses.delete(deleteConfirm.id);
+        setExpenses((prev) => prev.filter((e) => e.id !== deleteConfirm.id));
+      }
+      toast.success('Record deleted');
+      setDeleteConfirm(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete record');
     }
-    setDeleteConfirm(null);
   };
 
   const inputCls = 'w-full h-9 px-3 text-sm border border-input rounded-md bg-background text-foreground outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary';
@@ -264,7 +273,9 @@ export default function FuelExpensesContent() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {filteredFuel.length === 0 ? (
+                {loading ? (
+                  <tr><td colSpan={9} className="px-4 py-12 text-center text-sm text-muted-foreground">Loading fuel logs…</td></tr>
+                ) : filteredFuel.length === 0 ? (
                   <tr><td colSpan={9} className="px-4 py-12 text-center text-sm text-muted-foreground">No fuel logs found.</td></tr>
                 ) : filteredFuel.map((log) => (
                   <tr key={log.id} className="hover:bg-muted/20 transition-colors">
@@ -307,7 +318,9 @@ export default function FuelExpensesContent() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {filteredExpenses.length === 0 ? (
+                {loading ? (
+                  <tr><td colSpan={7} className="px-4 py-12 text-center text-sm text-muted-foreground">Loading expenses…</td></tr>
+                ) : filteredExpenses.length === 0 ? (
                   <tr><td colSpan={7} className="px-4 py-12 text-center text-sm text-muted-foreground">No expense logs found.</td></tr>
                 ) : filteredExpenses.map((exp) => (
                   <tr key={exp.id} className="hover:bg-muted/20 transition-colors">

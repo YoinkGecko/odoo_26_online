@@ -1,5 +1,6 @@
 'use client';
 import React, { useState } from 'react';
+import AuthGuard from './AuthGuard';
 import Sidebar from './Sidebar';
 
 interface AppLayoutProps {
@@ -11,6 +12,7 @@ export default function AppLayout({ children, activeRoute }: AppLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   return (
+    <AuthGuard>
     <div className="flex h-screen overflow-hidden bg-background">
       <Sidebar
         collapsed={sidebarCollapsed}
@@ -24,5 +26,6 @@ export default function AppLayout({ children, activeRoute }: AppLayoutProps) {
         {children}
       </main>
     </div>
+    </AuthGuard>
   );
 }

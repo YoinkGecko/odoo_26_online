@@ -1,10 +1,12 @@
 'use client';
 import React, { useState } from 'react';
-import { useForm } from 'react-hook-form';
 import { useRouter } from 'next/navigation';
+import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import AppLogo from '@/components/ui/AppLogo';
 import Icon from '@/components/ui/AppIcon';
+import { api } from '@/lib/api';
+import { saveAuth } from '@/lib/auth';
 
 type Role = 'Fleet Manager' | 'Driver' | 'Safety Officer' | 'Financial Analyst';
 
@@ -53,30 +55,18 @@ export default function LoginScreen() {
 
   const onSubmit = async (data: LoginFormValues) => {
     setIsLoading(true);
-
-    // TODO: Replace with API call → POST /api/auth/login
-    // const response = await fetch('/api/auth/login', {
-    //   method: 'POST',
-    //   headers: { 'Content-Type': 'application/json' },
-    //   body: JSON.stringify({ email: data.email, password: data.password }),
-    // });
-    // const result = await response.json();
-    // if (!response.ok) { setError('email', { message: result.message }); setIsLoading(false); return; }
-    // router.push('/kpi-dashboard');
-
-    await new Promise((r) => setTimeout(r, 900));
-    const match = DEMO_CREDENTIALS.find(
-      (c) => c.email === data.email && c.password === data.password
-    );
-    if (!match) {
+    try {
+      const result = await api.auth.login(data.email, data.password);
+      saveAuth(result.token, result.user);
+      toast.success(`Welcome back, ${result.user.role}`);
+      router.push('/kpi-dashboard');
+    } catch (err) {
       setError('email', {
-        message: 'Invalid credentials — use the demo accounts below to sign in',
+        message: err instanceof Error ? err.message : 'Login failed',
       });
+    } finally {
       setIsLoading(false);
-      return;
     }
-    toast.success(`Welcome back, ${match.role}`);
-    router.push('/kpi-dashboard');
   };
 
   return (

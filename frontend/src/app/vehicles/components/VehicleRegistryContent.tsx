@@ -1,6 +1,8 @@
 'use client';
-import React, { useState, useMemo } from 'react';
-import { MOCK_VEHICLES, Vehicle, VehicleStatus } from '@/lib/mockData';
+import React, { useState, useMemo, useEffect } from 'react';
+import { toast } from 'sonner';
+import { Vehicle, VehicleStatus } from '@/lib/types';
+import { api } from '@/lib/api';
 import Icon from '@/components/ui/AppIcon';
 import StatusBadge from '@/components/ui/StatusBadge';
 import Modal from '@/components/ui/Modal';
@@ -21,7 +23,8 @@ const EMPTY_FORM = {
 };
 
 export default function VehicleRegistryContent() {
-  const [vehicles, setVehicles] = useState<Vehicle[]>(MOCK_VEHICLES);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<VehicleStatus | 'All'>('All');
   const [typeFilter, setTypeFilter] = useState<string>('All');
@@ -30,6 +33,13 @@ export default function VehicleRegistryContent() {
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [formError, setFormError] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<Vehicle | null>(null);
+
+  useEffect(() => {
+    api.vehicles.list()
+      .then(setVehicles)
+      .catch((err) => toast.error(err.message))
+      .finally(() => setLoading(false));
+  }, []);
 
   const filtered = useMemo(() => {
     let r = vehicles;
@@ -70,19 +80,9 @@ export default function VehicleRegistryContent() {
     setModalOpen(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.registrationNumber.trim() || !form.name.trim()) {
       setFormError('Registration number and vehicle name are required.');
-      return;
-    }
-    // Unique reg# validation
-    const duplicate = vehicles.find(
-      (v) =>
-        v.registrationNumber.trim().toUpperCase() === form.registrationNumber.trim().toUpperCase() &&
-        v.id !== editVehicle?.id
-    );
-    if (duplicate) {
-      setFormError(`Registration number "${form.registrationNumber}" is already in use.`);
       return;
     }
     if (!form.maxLoadCapacity || Number(form.maxLoadCapacity) <= 0) {
@@ -90,50 +90,42 @@ export default function VehicleRegistryContent() {
       return;
     }
 
-    if (editVehicle) {
-      // TODO: Replace with API call → PUT /api/vehicles/:id
-      // await fetch(`/api/vehicles/${editVehicle.id}`, { method: 'PUT', body: JSON.stringify(payload) });
-      setVehicles((prev) =>
-        prev.map((v) =>
-          v.id === editVehicle.id
-            ? {
-                ...v,
-                registrationNumber: form.registrationNumber.trim().toUpperCase(),
-                name: form.name.trim(),
-                type: form.type,
-                maxLoadCapacity: Number(form.maxLoadCapacity),
-                odometer: Number(form.odometer) || 0,
-                acquisitionCost: Number(form.acquisitionCost) || 0,
-                status: form.status,
-                region: form.region,
-              }
-            : v
-        )
-      );
-    } else {
-      // TODO: Replace with API call → POST /api/vehicles
-      // await fetch('/api/vehicles', { method: 'POST', body: JSON.stringify(payload) });
-      const newVehicle: Vehicle = {
-        id: `veh-${Date.now()}`,
-        registrationNumber: form.registrationNumber.trim().toUpperCase(),
-        name: form.name.trim(),
-        type: form.type,
-        maxLoadCapacity: Number(form.maxLoadCapacity),
-        odometer: Number(form.odometer) || 0,
-        acquisitionCost: Number(form.acquisitionCost) || 0,
-        status: form.status,
-        region: form.region,
-      };
-      setVehicles((prev) => [newVehicle, ...prev]);
+    const payload = {
+      registrationNumber: form.registrationNumber.trim().toUpperCase(),
+      name: form.name.trim(),
+      type: form.type,
+      maxLoadCapacity: Number(form.maxLoadCapacity),
+      odometer: Number(form.odometer) || 0,
+      acquisitionCost: Number(form.acquisitionCost) || 0,
+      status: form.status,
+      region: form.region,
+    };
+
+    try {
+      if (editVehicle) {
+        const updated = await api.vehicles.update(editVehicle.id, payload);
+        setVehicles((prev) => prev.map((v) => (v.id === editVehicle.id ? updated : v)));
+        toast.success('Vehicle updated');
+      } else {
+        const created = await api.vehicles.create(payload);
+        setVehicles((prev) => [created, ...prev]);
+        toast.success('Vehicle added');
+      }
+      setModalOpen(false);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Failed to save vehicle');
     }
-    setModalOpen(false);
   };
 
-  const handleDelete = (v: Vehicle) => {
-    // TODO: Replace with API call → DELETE /api/vehicles/:id
-    // await fetch(`/api/vehicles/${v.id}`, { method: 'DELETE' });
-    setVehicles((prev) => prev.filter((x) => x.id !== v.id));
-    setDeleteConfirm(null);
+  const handleDelete = async (v: Vehicle) => {
+    try {
+      await api.vehicles.delete(v.id);
+      setVehicles((prev) => prev.filter((x) => x.id !== v.id));
+      setDeleteConfirm(null);
+      toast.success('Vehicle deleted');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete vehicle');
+    }
   };
 
   const statusCounts = useMemo(() => {
@@ -215,7 +207,13 @@ export default function VehicleRegistryContent() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filtered.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={9} className="px-4 py-12 text-center text-sm text-muted-foreground">
+                    Loading vehicles…
+                  </td>
+                </tr>
+              ) : filtered.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="px-4 py-12 text-center text-sm text-muted-foreground">
                     No vehicles match the current filters.

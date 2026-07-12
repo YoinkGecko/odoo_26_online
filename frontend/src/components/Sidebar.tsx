@@ -1,8 +1,10 @@
 'use client';
 import React from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
 import Icon from '@/components/ui/AppIcon';
+import { clearAuth, getAuthUser } from '@/lib/auth';
 
 interface NavItem {
   label: string;
@@ -28,6 +30,18 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ collapsed, onToggle, activeRoute }: SidebarProps) {
+  const router = useRouter();
+  const user = getAuthUser();
+
+  const handleLogout = () => {
+    clearAuth();
+    router.replace('/');
+  };
+
+  const initials = user?.name
+    ? user.name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
+    : 'TO';
+
   return (
     <aside
       className={`
@@ -82,15 +96,23 @@ export default function Sidebar({ collapsed, onToggle, activeRoute }: SidebarPro
 
       {/* Bottom */}
       <div className="border-t border-border p-2">
-        {!collapsed && (
-          <div className="flex items-center gap-2 px-2 py-2 rounded-md hover:bg-muted transition-colors mb-1 cursor-pointer">
+        {!collapsed && user && (
+          <div className="flex items-center gap-2 px-2 py-2 rounded-md hover:bg-muted transition-colors mb-1">
             <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-xs font-600 flex-shrink-0">
-              FM
+              {initials}
             </div>
-            <div className="min-w-0">
-              <p className="text-sm font-500 text-foreground truncate">Marcus Reid</p>
-              <p className="text-xs text-muted-foreground truncate">Fleet Manager</p>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-500 text-foreground truncate">{user.name}</p>
+              <p className="text-xs text-muted-foreground truncate">{user.role}</p>
             </div>
+            <button
+              onClick={handleLogout}
+              className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+              title="Sign out"
+              aria-label="Sign out"
+            >
+              <Icon name="ArrowRightOnRectangleIcon" size={14} />
+            </button>
           </div>
         )}
         <button
