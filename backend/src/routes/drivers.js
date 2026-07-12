@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import pool from '../db.js';
 import { mapDriver, nextId } from '../utils.js';
+import { requireRole } from '../middleware/auth.js';
 
 const router = Router();
 
-router.get('/', async (req, res) => {
+router.get('/', requireRole('Fleet Manager', 'Safety Officer'), async (req, res) => {
   const { status, availability } = req.query;
   let query = 'SELECT * FROM drivers WHERE 1=1';
   const params = [];
@@ -22,7 +23,7 @@ router.get('/', async (req, res) => {
   res.json(result.rows.map(mapDriver));
 });
 
-router.post('/', async (req, res) => {
+router.post('/', requireRole('Fleet Manager'), async (req, res) => {
   const { name, licenseNumber, licenseCategory, licenseExpiry, contactNumber, safetyScore, status } = req.body;
   if (!name?.trim() || !licenseNumber?.trim()) {
     return res.status(400).json({ message: 'Name and license number are required' });
@@ -40,7 +41,7 @@ router.post('/', async (req, res) => {
   res.status(201).json(mapDriver(result.rows[0]));
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireRole('Fleet Manager'), async (req, res) => {
   const { name, licenseNumber, licenseCategory, licenseExpiry, contactNumber, safetyScore, status } = req.body;
   if (licenseNumber) {
     const dup = await pool.query(
@@ -67,7 +68,7 @@ router.put('/:id', async (req, res) => {
   res.json(mapDriver(result.rows[0]));
 });
 
-router.patch('/:id/suspend', async (req, res) => {
+router.patch('/:id/suspend', requireRole('Fleet Manager'), async (req, res) => {
   const result = await pool.query(
     "UPDATE drivers SET status = 'Suspended' WHERE id = $1 RETURNING *",
     [req.params.id]
@@ -76,7 +77,7 @@ router.patch('/:id/suspend', async (req, res) => {
   res.json(mapDriver(result.rows[0]));
 });
 
-router.patch('/:id/reactivate', async (req, res) => {
+router.patch('/:id/reactivate', requireRole('Fleet Manager'), async (req, res) => {
   const result = await pool.query(
     "UPDATE drivers SET status = 'Available' WHERE id = $1 RETURNING *",
     [req.params.id]
@@ -85,7 +86,7 @@ router.patch('/:id/reactivate', async (req, res) => {
   res.json(mapDriver(result.rows[0]));
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireRole('Fleet Manager'), async (req, res) => {
   const onTrip = await pool.query("SELECT id FROM trips WHERE driver_id = $1 AND status = 'Dispatched'", [req.params.id]);
   if (onTrip.rows.length > 0) {
     return res.status(400).json({ message: 'Cannot delete driver with active dispatched trip' });

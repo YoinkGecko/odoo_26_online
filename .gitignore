@@ -12,3 +12,5 @@ mail_notification_service/.env
 frontend/node_modules/
 frontend/.env
 frontend/.gitignore
+insert.sql
+

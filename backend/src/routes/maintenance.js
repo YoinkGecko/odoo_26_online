@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import pool from '../db.js';
 import { mapMaintenance, nextId, normalizeDateValue } from '../utils.js';
+import { requireRole } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -10,12 +11,12 @@ const MNT_SELECT = `
   JOIN vehicles v ON v.id = m.vehicle_id
 `;
 
-router.get('/', async (req, res) => {
+router.get('/', requireRole('Fleet Manager', 'Safety Officer'), async (req, res) => {
   const result = await pool.query(MNT_SELECT + ' ORDER BY m.opened_at DESC');
   res.json(result.rows.map(mapMaintenance));
 });
 
-router.post('/', async (req, res) => {
+router.post('/', requireRole('Fleet Manager', 'Safety Officer'), async (req, res) => {
   const { vehicleId, type, description, cost, openedAt } = req.body;
   const normalizedOpenedAt = normalizeDateValue(openedAt);
   if (!vehicleId || !type?.trim()) {
@@ -51,7 +52,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireRole('Fleet Manager', 'Safety Officer'), async (req, res) => {
   const { type, description, cost, openedAt } = req.body;
   const normalizedOpenedAt = normalizeDateValue(openedAt);
   const result = await pool.query(
@@ -68,7 +69,7 @@ router.put('/:id', async (req, res) => {
   res.json(mapMaintenance(full.rows[0]));
 });
 
-router.patch('/:id/close', async (req, res) => {
+router.patch('/:id/close', requireRole('Fleet Manager', 'Safety Officer'), async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -104,7 +105,7 @@ router.patch('/:id/close', async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireRole('Fleet Manager', 'Safety Officer'), async (req, res) => {
   const logRes = await pool.query('SELECT * FROM maintenance_logs WHERE id = $1', [req.params.id]);
   if (logRes.rows.length === 0) return res.status(404).json({ message: 'Maintenance log not found' });
 

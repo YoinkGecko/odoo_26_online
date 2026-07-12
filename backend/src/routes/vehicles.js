@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import pool from '../db.js';
 import { mapVehicle, nextId } from '../utils.js';
+import { requireRole } from '../middleware/auth.js';
 
 const router = Router();
 
-router.get('/', async (req, res) => {
+router.get('/', requireRole('Fleet Manager', 'Safety Officer'), async (req, res) => {
   const { status, type, region, availability } = req.query;
   let query = 'SELECT * FROM vehicles WHERE 1=1';
   const params = [];
@@ -30,7 +31,7 @@ router.get('/', async (req, res) => {
   res.json(result.rows.map(mapVehicle));
 });
 
-router.post('/', async (req, res) => {
+router.post('/', requireRole('Fleet Manager'), async (req, res) => {
   const { registrationNumber, name, type, maxLoadCapacity, odometer, acquisitionCost, status, region } = req.body;
   if (!registrationNumber?.trim() || !name?.trim()) {
     return res.status(400).json({ message: 'Registration number and name are required' });
@@ -49,7 +50,7 @@ router.post('/', async (req, res) => {
   res.status(201).json(mapVehicle(result.rows[0]));
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireRole('Fleet Manager'), async (req, res) => {
   const { registrationNumber, name, type, maxLoadCapacity, odometer, acquisitionCost, status, region } = req.body;
   const reg = registrationNumber?.trim().toUpperCase();
   if (reg) {
@@ -78,7 +79,7 @@ router.put('/:id', async (req, res) => {
   res.json(mapVehicle(result.rows[0]));
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireRole('Fleet Manager'), async (req, res) => {
   const onTrip = await pool.query("SELECT id FROM trips WHERE vehicle_id = $1 AND status = 'Dispatched'", [req.params.id]);
   if (onTrip.rows.length > 0) {
     return res.status(400).json({ message: 'Cannot delete vehicle with active dispatched trip' });

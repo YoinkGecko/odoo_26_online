@@ -42,6 +42,21 @@ export default function Sidebar({ collapsed, onToggle, activeRoute }: SidebarPro
     ? user.name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
     : 'TO';
 
+  const visibleNav = NAV_ITEMS.filter((item) => {
+    if (!user) return false;
+    if (user.role === 'Fleet Manager') return true;
+    if (user.role === 'Driver') {
+      return ['/kpi-dashboard', '/trip-management'].includes(item.href);
+    }
+    if (user.role === 'Safety Officer') {
+      return ['/kpi-dashboard', '/vehicles', '/drivers', '/maintenance'].includes(item.href);
+    }
+    if (user.role === 'Financial Analyst') {
+      return ['/kpi-dashboard', '/fuel-expenses', '/reports'].includes(item.href);
+    }
+    return false;
+  });
+
   return (
     <aside
       className={`
@@ -70,7 +85,7 @@ export default function Sidebar({ collapsed, onToggle, activeRoute }: SidebarPro
             Operations
           </p>
         )}
-        {NAV_ITEMS.slice(0, 4).map((item) => (
+        {visibleNav.slice(0, 4).map((item) => (
           <SidebarNavItem
             key={`nav-${item.href}`}
             item={item}
@@ -84,7 +99,7 @@ export default function Sidebar({ collapsed, onToggle, activeRoute }: SidebarPro
           </p>
         )}
         {collapsed && <div className="h-2" />}
-        {NAV_ITEMS.slice(4).map((item) => (
+        {visibleNav.slice(4).map((item) => (
           <SidebarNavItem
             key={`nav-${item.href}`}
             item={item}

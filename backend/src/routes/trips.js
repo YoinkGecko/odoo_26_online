@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import pool from '../db.js';
 import { isDateExpired, mapTrip, nextId, normalizeDateValue, today } from '../utils.js';
+import { requireRole } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -11,7 +12,7 @@ const TRIP_SELECT = `
   JOIN drivers d ON d.id = t.driver_id
 `;
 
-router.get('/', async (req, res) => {
+router.get('/', requireRole('Fleet Manager', 'Driver'), async (req, res) => {
   const { status, limit, sort } = req.query;
   let query = TRIP_SELECT + ' WHERE 1=1';
   const params = [];
@@ -36,7 +37,7 @@ router.get('/', async (req, res) => {
   res.json(result.rows.map(mapTrip));
 });
 
-router.post('/', async (req, res) => {
+router.post('/', requireRole('Fleet Manager'), async (req, res) => {
   const { source, destination, vehicleId, driverId, cargoWeight, plannedDistance, eta } = req.body;
   const normalizedEta = normalizeDateValue(eta);
   if (!source || !destination || !vehicleId || !driverId || !cargoWeight || !plannedDistance) {
@@ -80,7 +81,7 @@ router.post('/', async (req, res) => {
   res.status(201).json(mapTrip(full.rows[0]));
 });
 
-router.post('/:id/dispatch', async (req, res) => {
+router.post('/:id/dispatch', requireRole('Fleet Manager'), async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -124,7 +125,7 @@ router.post('/:id/dispatch', async (req, res) => {
   }
 });
 
-router.post('/:id/complete', async (req, res) => {
+router.post('/:id/complete', requireRole('Fleet Manager'), async (req, res) => {
   const { finalOdometer, fuelConsumed } = req.body;
   const client = await pool.connect();
   try {
@@ -157,7 +158,7 @@ router.post('/:id/complete', async (req, res) => {
   }
 });
 
-router.post('/:id/cancel', async (req, res) => {
+router.post('/:id/cancel', requireRole('Fleet Manager'), async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -187,7 +188,7 @@ router.post('/:id/cancel', async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireRole('Fleet Manager'), async (req, res) => {
   const tripRes = await pool.query('SELECT status FROM trips WHERE id = $1', [req.params.id]);
   if (tripRes.rows.length === 0) return res.status(404).json({ message: 'Trip not found' });
   if (!['Completed', 'Cancelled'].includes(tripRes.rows[0].status)) {
