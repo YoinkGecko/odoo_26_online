@@ -11,6 +11,11 @@ const cors = require("cors");
 //const xss = require("xss-clean");
 const rateLimiterLib = require("express-rate-limit");
 
+//custom implemented erro middleware
+const notFound = require("./middleware/not-found");
+const errorHandler = require("./middleware/error-handler");
+
+
 //app.set("trust proxy", 1); //app.set() no idea
 app.use(
   rateLimiterLib({
@@ -25,10 +30,12 @@ app.use(cors());
 
 //app.use(express.static('./public'));
 
+
 //routes
 app.get("/ping", (req, res) => {
   res.status(200).send("PONG");
 });
+
 
 
 const port = process.env.PORT || 3000;
