@@ -20,25 +20,27 @@ router.get('/', requireRole('Fleet Manager', 'Safety Officer'), async (req, res)
 
   query += ' ORDER BY name';
   const result = await pool.query(query, params);
+  const mergedDrivers = [...result.rows.map(mapDriver)];
+  const shouldIncludeUsers = !status || status === 'Available';
 
-  const missingDriverUsers = await pool.query(
-    `SELECT u.id,
-            u.name,
-            u.email AS license_number,
-            'Class C' AS license_category,
-            CURRENT_DATE + INTERVAL '365 days' AS license_expiry,
-            u.email AS contact_number,
-            80 AS safety_score,
-            'Available' AS status
-       FROM users u
-      WHERE u.role = 'Driver'
-        AND NOT EXISTS (SELECT 1 FROM drivers d WHERE d.id = u.id)`
-  );
+  if (shouldIncludeUsers) {
+    const missingDriverUsers = await pool.query(
+      `SELECT u.id,
+              u.name,
+              u.email AS license_number,
+              'Class C' AS license_category,
+              CURRENT_DATE + INTERVAL '365 days' AS license_expiry,
+              u.email AS contact_number,
+              80 AS safety_score,
+              'Available' AS status
+         FROM users u
+        WHERE u.role = 'Driver'
+          AND NOT EXISTS (SELECT 1 FROM drivers d WHERE d.id = u.id)`
+    );
+    mergedDrivers.push(...missingDriverUsers.rows.map(mapDriver));
+  }
 
-  res.json([
-    ...result.rows.map(mapDriver),
-    ...missingDriverUsers.rows.map(mapDriver),
-  ]);
+  res.json(mergedDrivers);
 });
 
 router.post('/', requireRole('Fleet Manager'), async (req, res) => {

@@ -12,6 +12,29 @@ const TRIP_SELECT = `
   JOIN drivers d ON d.id = t.driver_id
 `;
 
+async function ensureDriverRecord(id) {
+  const existingDriver = await pool.query('SELECT * FROM drivers WHERE id = $1', [id]);
+  if (existingDriver.rows.length > 0) {
+    return existingDriver.rows[0];
+  }
+
+  const userRes = await pool.query('SELECT * FROM users WHERE id = $1 AND role = $2', [id, 'Driver']);
+  const user = userRes.rows[0];
+  if (!user) return null;
+
+  const licenseExpiry = new Date();
+  licenseExpiry.setFullYear(licenseExpiry.getFullYear() + 1);
+  const licenseExpiryString = licenseExpiry.toISOString().slice(0, 10);
+
+  const insertRes = await pool.query(
+    `INSERT INTO drivers (id, name, license_number, license_category, license_expiry, contact_number, safety_score, status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, 'Available') RETURNING *`,
+    [id, user.name, `DL-${Date.now()}`, 'Class C', licenseExpiryString, user.email, 80]
+  );
+
+  return insertRes.rows[0];
+}
+
 router.get('/', requireRole('Fleet Manager', 'Driver'), async (req, res) => {
   const { status, limit, sort } = req.query;
   let query = TRIP_SELECT + ' WHERE 1=1';
@@ -45,9 +68,8 @@ router.post('/', requireRole('Fleet Manager'), async (req, res) => {
   }
 
   const vehicleRes = await pool.query('SELECT * FROM vehicles WHERE id = $1', [vehicleId]);
-  const driverRes = await pool.query('SELECT * FROM drivers WHERE id = $1', [driverId]);
+  let driver = await ensureDriverRecord(driverId);
   const vehicle = vehicleRes.rows[0];
-  const driver = driverRes.rows[0];
 
   if (!vehicle) return res.status(400).json({ message: 'Invalid vehicle' });
   if (!driver) return res.status(400).json({ message: 'Invalid driver' });
