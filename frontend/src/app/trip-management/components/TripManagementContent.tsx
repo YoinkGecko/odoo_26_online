@@ -1,7 +1,7 @@
 'use client';
 import React, { useState, useMemo, useEffect } from 'react';
 import { toast } from 'sonner';
-import { Trip, TripStatus } from '@/lib/types';
+import { Trip, TripStatus, AuthUser } from '@/lib/types';
 import { api } from '@/lib/api';
 import Icon from '@/components/ui/AppIcon';
 import StatusBadge from '@/components/ui/StatusBadge';
@@ -23,6 +23,7 @@ const STATUS_FILTERS: { label: string; value: TripStatus | 'All' }[] = [
 
 export default function TripManagementContent() {
   const [trips, setTrips] = useState<Trip[]>([]);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [vehicles, setVehicles] = useState<Awaited<ReturnType<typeof api.vehicles.list>>>([]);
   const [drivers, setDrivers] = useState<Awaited<ReturnType<typeof api.drivers.list>>>([]);
   const [loading, setLoading] = useState(true);
@@ -41,13 +42,14 @@ export default function TripManagementContent() {
   } | null>(null);
 
   useEffect(() => {
-    Promise.all([api.trips.list(), api.vehicles.list(), api.drivers.list()])
-      .then(([tripsData, vehiclesData, driversData]) => {
-        setTrips(tripsData);
-        setVehicles(vehiclesData);
-        setDrivers(driversData);
+    Promise.all([api.auth.me().catch(() => null), api.trips.list(), api.vehicles.list(), api.drivers.list()])
+      .then(([meData, tripsData, vehiclesData, driversData]) => {
+        if (meData && (meData as any).user) setUser((meData as any).user as AuthUser);
+        setTrips(tripsData as Trip[]);
+        setVehicles(vehiclesData as Awaited<ReturnType<typeof api.vehicles.list>>);
+        setDrivers(driversData as Awaited<ReturnType<typeof api.drivers.list>>);
       })
-      .catch((err) => toast.error(err.message))
+      .catch((err) => toast.error((err as Error).message))
       .finally(() => setLoading(false));
   }, []);
 
@@ -179,20 +181,22 @@ export default function TripManagementContent() {
     <div className="px-6 py-6 max-w-screen-2xl mx-auto space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-700 text-foreground">Trip Management</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            {trips.length} total trips — {trips.filter((t) => t.status === 'Dispatched').length} active
-          </p>
+          <div>
+            <h1 className="text-2xl font-700 text-foreground">{user?.role === 'Driver' ? 'My Trips' : 'Trip Management'}</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              {trips.length} total trips — {trips.filter((t) => t.status === 'Dispatched').length} active
+            </p>
+          </div>
+          {user?.role !== 'Driver' && (
+            <button
+              onClick={() => setCreateOpen(true)}
+              className="inline-flex items-center gap-2 h-9 px-4 bg-primary text-primary-foreground text-sm font-600 rounded-md hover:bg-blue-700 active:scale-[0.98] transition-all duration-150"
+            >
+              <Icon name="PlusIcon" size={16} />
+              Create Trip
+            </button>
+          )}
         </div>
-        <button
-          onClick={() => setCreateOpen(true)}
-          className="inline-flex items-center gap-2 h-9 px-4 bg-primary text-primary-foreground text-sm font-600 rounded-md hover:bg-blue-700 active:scale-[0.98] transition-all duration-150"
-        >
-          <Icon name="PlusIcon" size={16} />
-          Create Trip
-        </button>
-      </div>
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
@@ -237,15 +241,17 @@ export default function TripManagementContent() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/30">
-                <th className="px-4 py-3 w-10">
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.size === filteredTrips.length && filteredTrips.length > 0}
-                    onChange={toggleSelectAll}
-                    className="w-4 h-4 rounded border-input accent-primary cursor-pointer"
-                    aria-label="Select all trips"
-                  />
-                </th>
+                {user?.role !== 'Driver' && (
+                  <th className="px-4 py-3 w-10">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.size === filteredTrips.length && filteredTrips.length > 0}
+                      onChange={toggleSelectAll}
+                      className="w-4 h-4 rounded border-input accent-primary cursor-pointer"
+                      aria-label="Select all trips"
+                    />
+                  </th>
+                )}
                 {COLUMNS.map((col) => (
                   <th
                     key={`th-${col.field}`}
@@ -266,13 +272,13 @@ export default function TripManagementContent() {
             <tbody className="divide-y divide-border">
               {loading ? (
                 <tr>
-                  <td colSpan={11} className="px-4 py-16 text-center text-sm text-muted-foreground">
+                  <td colSpan={COLUMNS.length + 2 - (user?.role === 'Driver' ? 1 : 0)} className="px-4 py-16 text-center text-sm text-muted-foreground">
                     Loading trips…
                   </td>
                 </tr>
               ) : filteredTrips.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="px-4 py-16 text-center">
+                  <td colSpan={COLUMNS.length + 2 - (user?.role === 'Driver' ? 1 : 0)} className="px-4 py-16 text-center">
                     <div className="flex flex-col items-center gap-3">
                       <Icon name="MapIcon" size={32} className="text-muted-foreground opacity-40" />
                       <div>
@@ -299,6 +305,8 @@ export default function TripManagementContent() {
                     key={trip.id}
                     trip={trip}
                     selected={selectedIds.has(trip.id)}
+                    showCheckbox={user?.role !== 'Driver'}
+                    userRole={user?.role}
                     onSelect={() => toggleSelect(trip.id)}
                     onView={() => setDetailTrip(trip)}
                     onDispatch={() => setConfirmAction({ type: 'dispatch', trip })}
@@ -401,6 +409,8 @@ export default function TripManagementContent() {
 interface TripRowProps {
   trip: Trip;
   selected: boolean;
+  showCheckbox?: boolean;
+  userRole?: string | null;
   onSelect: () => void;
   onView: () => void;
   onDispatch: () => void;
@@ -409,7 +419,7 @@ interface TripRowProps {
   onDelete: () => void;
 }
 
-function TripRow({ trip, selected, onSelect, onView, onDispatch, onComplete, onCancel, onDelete }: TripRowProps) {
+function TripRow({ trip, selected, showCheckbox = true, userRole = null, onSelect, onView, onDispatch, onComplete, onCancel, onDelete }: TripRowProps) {
   const cargoPercent = Math.round((trip.cargoWeight / trip.vehicleMaxLoad) * 100);
   const isOverloaded = cargoPercent > 100;
   const isHighLoad = cargoPercent >= 90 && !isOverloaded;
@@ -419,15 +429,17 @@ function TripRow({ trip, selected, onSelect, onView, onDispatch, onComplete, onC
       className={`group transition-colors ${selected ? 'bg-accent/50' : 'hover:bg-muted/40'}`}
     >
       {/* Checkbox */}
-      <td className="px-4 py-3 w-10">
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={onSelect}
-          className="w-4 h-4 rounded border-input accent-primary cursor-pointer"
-          aria-label={`Select trip ${trip.id}`}
-        />
-      </td>
+      {showCheckbox && (
+        <td className="px-4 py-3 w-10">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onSelect}
+            className="w-4 h-4 rounded border-input accent-primary cursor-pointer"
+            aria-label={`Select trip ${trip.id}`}
+          />
+        </td>
+      )}
 
       {/* Trip ID */}
       <td className="px-4 py-3 w-28">
@@ -496,19 +508,23 @@ function TripRow({ trip, selected, onSelect, onView, onDispatch, onComplete, onC
 
       {/* Actions */}
       <td className="px-4 py-3 w-32">
-        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <ActionButton label="View details" onClick={onView} icon="EyeIcon" />
-          {trip.status === 'Draft' && (
-            <ActionButton label="Dispatch trip" onClick={onDispatch} icon="PaperAirplaneIcon" color="blue" />
-          )}
-          {trip.status === 'Dispatched' && (
-            <ActionButton label="Mark completed" onClick={onComplete} icon="CheckIcon" color="green" />
-          )}
-          {(trip.status === 'Draft' || trip.status === 'Dispatched') && (
-            <ActionButton label="Cancel trip" onClick={onCancel} icon="XMarkIcon" color="amber" />
-          )}
-          {(trip.status === 'Completed' || trip.status === 'Cancelled') && (
-            <ActionButton label="Delete record" onClick={onDelete} icon="TrashIcon" color="red" />
+          {userRole === 'Fleet Manager' && (
+            <>
+              {trip.status === 'Draft' && (
+                <ActionButton label="Dispatch trip" onClick={onDispatch} icon="PaperAirplaneIcon" color="blue" />
+              )}
+              {trip.status === 'Dispatched' && (
+                <ActionButton label="Mark completed" onClick={onComplete} icon="CheckIcon" color="green" />
+              )}
+              {(trip.status === 'Draft' || trip.status === 'Dispatched') && (
+                <ActionButton label="Cancel trip" onClick={onCancel} icon="XMarkIcon" color="amber" />
+              )}
+              {(trip.status === 'Completed' || trip.status === 'Cancelled') && (
+                <ActionButton label="Delete record" onClick={onDelete} icon="TrashIcon" color="red" />
+              )}
+            </>
           )}
         </div>
       </td>

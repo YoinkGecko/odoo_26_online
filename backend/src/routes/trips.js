@@ -6,10 +6,11 @@ import { requireRole } from '../middleware/auth.js';
 const router = Router();
 
 const TRIP_SELECT = `
-  SELECT t.*, v.registration_number AS vehicle_reg, d.name AS driver_name
+  SELECT t.*, v.registration_number AS vehicle_reg, COALESCE(d.name, u.name) AS driver_name
   FROM trips t
   JOIN vehicles v ON v.id = t.vehicle_id
-  JOIN drivers d ON d.id = t.driver_id
+  LEFT JOIN drivers d ON d.id = t.driver_id
+  LEFT JOIN users u ON u.id = t.driver_id AND u.role = 'Driver'
 `;
 
 async function ensureDriverRecord(id) {
@@ -39,6 +40,12 @@ router.get('/', requireRole('Fleet Manager', 'Driver'), async (req, res) => {
   const { status, limit, sort } = req.query;
   let query = TRIP_SELECT + ' WHERE 1=1';
   const params = [];
+
+  // If the requester is a Driver, only return trips assigned to them
+  if (req.user && req.user.role === 'Driver') {
+    params.push(req.user.id);
+    query += ` AND t.driver_id = $${params.length}`;
+  }
 
   if (status) {
     params.push(status);
