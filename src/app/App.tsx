@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import {
   LayoutDashboard, Truck, Users, Navigation, Wrench, Fuel, BarChart3,
   Settings, LogOut, Bell, Search, ChevronDown, TrendingUp, TrendingDown,
-  AlertTriangle, CheckCircle, Clock, XCircle, Plus, Download, Filter,
+  AlertTriangle, CheckCircle, Clock, XCircle, Plus, Download, Filter, Play,
   Eye, Edit2, Trash2, MoreHorizontal, ArrowRight, Shield, Zap, Globe,
   ChevronRight, X, Package, MapPin, Calendar, Phone, Star, Activity,
   DollarSign, Gauge, RefreshCw, FileText, UploadCloud, Moon, Sun,
@@ -2135,6 +2135,180 @@ function TripDispatcher() {
 
 function MaintenanceMod() {
   const [showForm, setShowForm] = useState(false);
+  const [recordsList, setRecordsList] = useState<any[]>([]);
+  const [vehiclesList, setVehiclesList] = useState<any[]>([]);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
+
+  // Form states
+  const [vehicleId, setVehicleId] = useState("");
+  const [type, setType] = useState("");
+  const [technician, setTechnician] = useState("");
+  const [category, setCategory] = useState("Mechanical");
+  const [priority, setPriority] = useState("Normal");
+  const [cost, setCost] = useState("");
+  const [date, setDate] = useState("");
+  const [notes, setNotes] = useState("");
+  const [errors, setErrors] = useState<string[]>([]);
+
+  const fetchVehicles = async () => {
+    try {
+      const res = await fetch("http://localhost:5000/api/v1/vehicles");
+      const json = await res.json();
+      if (json.success) {
+        setVehiclesList(json.data);
+      }
+    } catch (err) {
+      console.error("Error fetching vehicles:", err);
+    }
+  };
+
+  const fetchMaintenance = async () => {
+    try {
+      const queryParams = new URLSearchParams({
+        limit: "100",
+        search,
+        status: statusFilter,
+        category: categoryFilter,
+      });
+      const res = await fetch(`http://localhost:5000/api/v1/maintenance?${queryParams.toString()}`);
+      const json = await res.json();
+      if (json.success) {
+        setRecordsList(json.data);
+
+        // Update global MAINTENANCE constant in-place so other components stay synchronized
+        MAINTENANCE.length = 0;
+        MAINTENANCE.push(...json.data.map((m: any) => ({
+          id: m.maintenanceId,
+          vehicle: `${m.vehicle?.regNumber} — ${m.vehicle?.name}`,
+          type: m.type,
+          category: m.category,
+          priority: m.priority,
+          cost: Number(m.cost),
+          technician: m.technician,
+          date: m.date ? new Date(m.date).toISOString().split('T')[0] : "",
+          status: m.status,
+          notes: m.notes
+        })));
+      }
+    } catch (err) {
+      console.error("Error fetching maintenance:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchVehicles();
+    fetchMaintenance();
+  }, [search, statusFilter, categoryFilter]);
+
+  const handleScheduleService = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrors([]);
+
+    if (!vehicleId) {
+      setErrors(["Please select a vehicle."]);
+      return;
+    }
+
+    const payload = {
+      vehicleId,
+      type,
+      category,
+      priority,
+      cost: Number(cost) || 0,
+      technician,
+      date: date || new Date().toISOString().split('T')[0],
+      notes,
+      status: "Scheduled"
+    };
+
+    try {
+      const res = await fetch("http://localhost:5000/api/v1/maintenance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        setErrors([json.error?.message || "Failed to schedule service."]);
+        return;
+      }
+
+      setShowForm(false);
+      setVehicleId("");
+      setType("");
+      setTechnician("");
+      setCategory("Mechanical");
+      setPriority("Normal");
+      setCost("");
+      setDate("");
+      setNotes("");
+
+      fetchMaintenance();
+      fetchVehicles();
+    } catch (err) {
+      console.error("Error scheduling service:", err);
+      setErrors(["Network error occurred."]);
+    }
+  };
+
+  const handleStartService = async (id: string) => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/v1/maintenance/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "In Progress" }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        alert(json.error?.message || "Failed to start service");
+        return;
+      }
+      fetchMaintenance();
+      fetchVehicles();
+    } catch (err) {
+      console.error("Error starting service:", err);
+    }
+  };
+
+  const handleCompleteService = async (id: string) => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/v1/maintenance/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "Completed" }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        alert(json.error?.message || "Failed to complete service");
+        return;
+      }
+      fetchMaintenance();
+      fetchVehicles();
+    } catch (err) {
+      console.error("Error completing service:", err);
+    }
+  };
+
+  const handleDeleteRecord = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this record?")) return;
+    try {
+      const res = await fetch(`http://localhost:5000/api/v1/maintenance/${id}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        fetchMaintenance();
+        fetchVehicles();
+      } else {
+        alert(json.error?.message || "Failed to delete record");
+      }
+    } catch (err) {
+      console.error("Error deleting record:", err);
+    }
+  };
 
   return (
     <div>
@@ -2143,7 +2317,6 @@ function MaintenanceMod() {
         subtitle="Service scheduling and history"
         action={
           <div className="flex gap-2">
-            <Btn variant="secondary" size="sm"><Download className="w-3.5 h-3.5" />Export</Btn>
             <Btn size="sm" onClick={() => setShowForm(!showForm)}><Plus className="w-3.5 h-3.5" />Schedule Service</Btn>
           </div>
         }
@@ -2152,63 +2325,80 @@ function MaintenanceMod() {
       {/* Business rule banner */}
       <div className="mb-5 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-center gap-3 text-xs text-amber-300">
         <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-        <span>When a maintenance record is set to <strong>In Progress</strong>, the vehicle status is automatically updated to <strong>In Shop</strong> and removed from dispatch selection.</span>
+        <span>When a maintenance record is set to <strong>In Progress</strong>, the vehicle status is automatically updated to <strong>In Shop</strong> and removed from dispatch selection. When it ends (Completed), the vehicle status reverts to <strong>Available</strong>.</span>
       </div>
 
       <div className={`grid gap-6 ${showForm ? "grid-cols-1 lg:grid-cols-3" : "grid-cols-1"}`}>
         {/* Service Form */}
         {showForm && (
-          <div className="bg-[#1D2128] border border-amber-500/30 rounded-xl p-5">
+          <form onSubmit={handleScheduleService} className="bg-[#1D2128] border border-amber-500/30 rounded-xl p-5 h-fit">
             <div className="text-sm font-semibold text-white mb-4">Schedule New Service</div>
+            
+            {errors.length > 0 && (
+              <div className="mb-3 space-y-1">
+                {errors.map((e, idx) => (
+                  <div key={idx} className="p-2 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded-lg">
+                    {e}
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="space-y-3">
               <div>
                 <label className="text-xs font-medium text-gray-400 mb-1.5 block">Vehicle</label>
-                <select className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none focus:border-amber-500/50">
+                <select value={vehicleId} onChange={e => setVehicleId(e.target.value)} className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none focus:border-amber-500/50" required>
                   <option value="">Select vehicle</option>
-                  {VEHICLES.filter(v => v.status !== "Retired").map(v => <option key={v.id}>{v.reg} — {v.name}</option>)}
+                  {vehiclesList.filter(v => v.status !== "Retired").map(v => (
+                    <option key={v.id} value={v.id}>{v.regNumber} — {v.name}</option>
+                  ))}
                 </select>
               </div>
-              {[
-                { label: "Issue / Service Type", placeholder: "e.g. Oil Change, Brake Service" },
-                { label: "Technician", placeholder: "Assigned technician" },
-              ].map(f => (
-                <div key={f.label}>
-                  <label className="text-xs font-medium text-gray-400 mb-1.5 block">{f.label}</label>
-                  <input placeholder={f.placeholder} className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50" />
-                </div>
-              ))}
+
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">Issue / Service Type</label>
+                <input value={type} onChange={e => setType(e.target.value)} placeholder="e.g. Oil Change, Brake Service" className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50" required />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-gray-400 mb-1.5 block">Technician</label>
+                <input value={technician} onChange={e => setTechnician(e.target.value)} placeholder="Assigned technician" className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50" required />
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-gray-400 mb-1.5 block">Category</label>
-                  <select className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none focus:border-amber-500/50">
-                    {["Mechanical", "Brakes", "Tyres", "Electrical", "Inspection", "Servicing"].map(o => <option key={o}>{o}</option>)}
+                  <select value={category} onChange={e => setCategory(e.target.value)} className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none focus:border-amber-500/50">
+                    {["Mechanical", "Brakes", "Tyres", "Electrical", "Inspection", "Servicing"].map(o => <option key={o} value={o}>{o}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="text-xs font-medium text-gray-400 mb-1.5 block">Priority</label>
-                  <select className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none focus:border-amber-500/50">
-                    <option>Normal</option><option>High</option><option>Critical</option>
+                  <select value={priority} onChange={e => setPriority(e.target.value)} className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none focus:border-amber-500/50">
+                    <option value="Normal">Normal</option>
+                    <option value="High">High</option>
+                    <option value="Critical">Critical</option>
                   </select>
                 </div>
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-400 mb-1.5 block">Estimated Cost (KES)</label>
-                <input type="number" placeholder="0" className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50" />
+                <input type="number" value={cost} onChange={e => setCost(e.target.value)} placeholder="0" className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50" required />
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-400 mb-1.5 block">Scheduled Date</label>
-                <input type="date" className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none focus:border-amber-500/50" />
+                <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white focus:outline-none focus:border-amber-500/50" required />
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-400 mb-1.5 block">Service Notes</label>
-                <textarea rows={2} className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50 resize-none" />
+                <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} className="w-full px-3 py-2 bg-[#0F1115] border border-[#2B313B] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/50 resize-none" />
               </div>
               <div className="flex gap-2 pt-1">
-                <Btn className="flex-1 justify-center">Schedule</Btn>
-                <Btn variant="secondary" onClick={() => setShowForm(false)}>Cancel</Btn>
+                <button type="submit" className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all border px-4 py-2 text-sm bg-amber-500 hover:bg-amber-400 text-black border-amber-500">Schedule</button>
+                <Btn type="button" variant="secondary" onClick={() => setShowForm(false)}>Cancel</Btn>
               </div>
             </div>
-          </div>
+          </form>
         )}
 
         {/* Service History Table */}
@@ -2216,33 +2406,66 @@ function MaintenanceMod() {
           <div className="bg-[#1D2128] border border-[#2B313B] rounded-xl overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-[#2B313B]">
               <span className="text-sm font-semibold text-white">Service Records</span>
-              <SearchBar placeholder="Search records…" className="w-52" />
+              <SearchBar placeholder="Search records…" value={search} onChange={e => setSearch(e.target.value)} className="w-52" />
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[#2B313B]">
-                    {["ID", "Vehicle", "Service Type", "Category", "Priority", "Cost", "Technician", "Date", "Status"].map(h => (
+                    {["ID", "Vehicle", "Service Type", "Category", "Priority", "Cost", "Technician", "Date", "Status", "Actions"].map(h => (
                       <th key={h} className="text-left px-5 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#2B313B]">
-                  {MAINTENANCE.map(m => (
-                    <tr key={m.id} className="hover:bg-[#2B313B]/40 transition-colors">
-                      <td className="px-5 py-3 font-mono text-xs text-amber-400">{m.id}</td>
-                      <td className="px-5 py-3 text-white text-xs">{m.vehicle}</td>
+                  {recordsList.map(m => (
+                    <tr key={m.id} className="hover:bg-[#2B313B]/40 transition-colors group">
+                      <td className="px-5 py-3 font-mono text-xs text-amber-400">{m.maintenanceId}</td>
+                      <td className="px-5 py-3 text-white text-xs">{m.vehicle?.regNumber} — {m.vehicle?.name}</td>
                       <td className="px-5 py-3 text-gray-300">{m.type}</td>
                       <td className="px-5 py-3 text-gray-400 text-xs">{m.category}</td>
                       <td className="px-5 py-3">
                         <span className={`text-xs font-medium ${m.priority === "High" ? "text-red-400" : m.priority === "Critical" ? "text-red-500" : "text-gray-400"}`}>{m.priority}</span>
                       </td>
-                      <td className="px-5 py-3 text-gray-300 text-xs">KES {m.cost.toLocaleString()}</td>
+                      <td className="px-5 py-3 text-gray-300 text-xs">KES {Number(m.cost).toLocaleString()}</td>
                       <td className="px-5 py-3 text-gray-400 text-xs">{m.technician}</td>
-                      <td className="px-5 py-3 text-gray-400 font-mono text-xs">{m.date}</td>
+                      <td className="px-5 py-3 text-gray-400 font-mono text-xs">{m.date ? new Date(m.date).toISOString().split('T')[0] : "—"}</td>
                       <td className="px-5 py-3"><StatusBadge status={m.status} /></td>
+                      <td className="px-5 py-3">
+                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {(m.status === "Scheduled" || m.status === "Overdue") && (
+                            <button
+                              type="button"
+                              onClick={() => handleStartService(m.id)}
+                              title="Start Service"
+                              className="p-1 hover:bg-[#2B313B] rounded text-emerald-400 hover:text-emerald-300"
+                            ><Play className="w-3.5 h-3.5" /></button>
+                          )}
+                          {m.status === "In Progress" && (
+                            <button
+                              type="button"
+                              onClick={() => handleCompleteService(m.id)}
+                              title="Complete Service"
+                              className="p-1 hover:bg-[#2B313B] rounded text-emerald-400 hover:text-emerald-300"
+                            ><CheckCircle className="w-3.5 h-3.5" /></button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteRecord(m.id)}
+                            title="Delete Record"
+                            className="p-1 hover:bg-[#2B313B] rounded text-gray-400 hover:text-red-400"
+                          ><Trash2 className="w-3.5 h-3.5" /></button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
+                  {recordsList.length === 0 && (
+                    <tr>
+                      <td colSpan={10} className="px-5 py-8 text-center text-gray-500 text-xs">
+                        No maintenance records found in database.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -2254,19 +2477,22 @@ function MaintenanceMod() {
       <div className="mt-6 bg-[#1D2128] border border-[#2B313B] rounded-xl p-5">
         <div className="text-sm font-semibold text-white mb-4">Upcoming Maintenance Timeline</div>
         <div className="space-y-3">
-          {MAINTENANCE.filter(m => m.status === "Scheduled").map(m => (
+          {recordsList.filter(m => m.status === "Scheduled").map(m => (
             <div key={m.id} className="flex items-center gap-4">
-              <div className="w-20 text-xs text-gray-500 font-mono text-right shrink-0">{m.date}</div>
+              <div className="w-20 text-xs text-gray-500 font-mono text-right shrink-0">{m.date ? new Date(m.date).toISOString().split('T')[0] : ""}</div>
               <div className="w-2 h-2 rounded-full bg-blue-400 shrink-0" />
               <div className="flex-1 p-3 bg-[#0F1115] border border-[#2B313B] rounded-lg">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-medium text-white">{m.type}</span>
-                  <span className="text-xs text-gray-500">{m.vehicle.split("—")[0].trim()}</span>
+                  <span className="text-xs text-gray-500">{m.vehicle?.regNumber}</span>
                 </div>
-                <div className="text-xs text-gray-500 mt-0.5">KES {m.cost.toLocaleString()} · {m.technician}</div>
+                <div className="text-xs text-gray-500 mt-0.5">KES {Number(m.cost).toLocaleString()} · {m.technician}</div>
               </div>
             </div>
           ))}
+          {recordsList.filter(m => m.status === "Scheduled").length === 0 && (
+            <p className="text-xs text-gray-500 text-center py-2">No upcoming maintenance scheduled.</p>
+          )}
         </div>
       </div>
     </div>

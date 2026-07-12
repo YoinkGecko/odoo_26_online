@@ -25,6 +25,7 @@ model Vehicle {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   trips           Trip[]
+  maintenance     Maintenance[]
 
   @@map("vehicles")
 }
@@ -72,4 +73,25 @@ model Trip {
   driver        Driver   @relation(fields: [driverId], references: [id])
 
   @@map("trips")
+}
+
+model Maintenance {
+  id            String   @id @default(uuid())
+  maintenanceId String   @unique
+  type          String
+  category      String
+  priority      String   @default("Normal") // Normal, High, Critical
+  cost          Decimal  @db.Decimal(15, 2)
+  technician    String
+  date          DateTime @db.Date
+  status        String   @default("Scheduled") // Scheduled, In Progress, Completed, Overdue
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relationships
+  vehicleId     String
+  vehicle       Vehicle  @relation(fields: [vehicleId], references: [id])
+
+  @@map("maintenance")
 }

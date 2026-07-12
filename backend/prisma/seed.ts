@@ -283,6 +283,74 @@ const tripsData = [
   },
 ];
 
+const maintenanceData = [
+  {
+    id: "M-441",
+    maintenanceId: "MNT-441",
+    vehicleId: "V-003",
+    type: "Engine Overhaul",
+    category: "Mechanical",
+    priority: "High",
+    cost: 85000,
+    technician: "Alex Mutua",
+    date: new Date("2025-01-12"),
+    status: "In Progress",
+    notes: "Cylinder head gasket replacement",
+  },
+  {
+    id: "M-440",
+    maintenanceId: "MNT-440",
+    vehicleId: "V-001",
+    type: "Tyre Replacement",
+    category: "Tyres",
+    priority: "Normal",
+    cost: 42000,
+    technician: "Ben Kipchoge",
+    date: new Date("2025-01-18"),
+    status: "Scheduled",
+    notes: "All 6 rear tyres due for replacement",
+  },
+  {
+    id: "M-439",
+    maintenanceId: "MNT-439",
+    vehicleId: "V-004",
+    type: "Brake Service",
+    category: "Brakes",
+    priority: "High",
+    cost: 28500,
+    technician: "Alex Mutua",
+    date: new Date("2025-01-08"),
+    status: "Completed",
+    notes: "Front and rear brake pad replacement",
+  },
+  {
+    id: "M-438",
+    maintenanceId: "MNT-438",
+    vehicleId: "V-007",
+    type: "Annual Inspection",
+    category: "Inspection",
+    priority: "Normal",
+    cost: 15000,
+    technician: "Chris Ouma",
+    date: new Date("2024-12-20"),
+    status: "Overdue",
+    notes: "Vehicle due for government inspection",
+  },
+  {
+    id: "M-437",
+    maintenanceId: "MNT-437",
+    vehicleId: "V-005",
+    type: "Oil Change",
+    category: "Servicing",
+    priority: "Low",
+    cost: 8500,
+    technician: "Ben Kipchoge",
+    date: new Date("2025-01-25"),
+    status: "Scheduled",
+    notes: "10,000 km interval service",
+  },
+];
+
 async function main() {
   console.log("Seeding vehicles...");
   for (const vehicle of vehiclesData) {
@@ -308,6 +376,15 @@ async function main() {
       where: { tripId: trip.tripId },
       update: trip,
       create: trip,
+    });
+  }
+
+  console.log("Seeding maintenance...");
+  for (const mnt of maintenanceData) {
+    await prisma.maintenance.upsert({
+      where: { maintenanceId: mnt.maintenanceId },
+      update: mnt,
+      create: mnt,
     });
   }
 
