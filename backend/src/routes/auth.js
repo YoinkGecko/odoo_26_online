@@ -2,6 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import pool from '../db.js';
 import { signToken } from '../middleware/auth.js';
+import { nextId } from '../utils.js';
 
 const router = Router();
 
@@ -12,6 +13,8 @@ router.post('/register', async (req, res) => {
   }
 
   const normalizedEmail = email.toLowerCase().trim();
+  const normalizedRole = role?.trim() || 'Fleet Manager';
+
   const existing = await pool.query('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
   if (existing.rows.length > 0) {
     return res.status(409).json({ message: 'An account with that email already exists' });
@@ -22,10 +25,21 @@ router.post('/register', async (req, res) => {
   const result = await pool.query(
     `INSERT INTO users (id, email, password_hash, role, name)
      VALUES ($1, $2, $3, $4, $5) RETURNING id, email, role, name`,
-    [userId, normalizedEmail, passwordHash, role || 'Fleet Manager', name.trim()]
+    [userId, normalizedEmail, passwordHash, normalizedRole, name.trim()]
   );
 
   const user = result.rows[0];
+  if (normalizedRole === 'Driver') {
+    const licenseExpiry = new Date();
+    licenseExpiry.setFullYear(licenseExpiry.getFullYear() + 1);
+
+    await pool.query(
+      `INSERT INTO drivers (id, name, license_number, license_category, license_expiry, contact_number, safety_score, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'Available')`,
+      [userId, user.name, `DL-${Date.now()}`, 'Class C', licenseExpiry.toISOString().slice(0, 10), user.email, 80]
+    );
+  }
+
   const token = signToken({ id: user.id, email: user.email, role: user.role, name: user.name });
 
   res.status(201).json({
