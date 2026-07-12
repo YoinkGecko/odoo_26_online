@@ -1,6 +1,7 @@
 #main app
 node_modules/
 .env
+.pending
 
 #mail notification service
 mail_notification_service/node_modules/
